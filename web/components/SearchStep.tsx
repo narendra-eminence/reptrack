@@ -17,6 +17,10 @@ export function SearchStep({ run, refetch }: { run: RunDetail; refetch: () => Pr
   const c = run.counts;
   const finished = c.done + c.failed;
   const scrapeJob = active ?? run.last_scrape_job;
+  // Spec 7: a completed step stays visible, collapsed and read-only. Collapsed by default once a verification
+  // exists (it is then background detail, not the thing being worked on), expanded otherwise - computed once at
+  // mount, not recomputed on every refetch, so the user's own later toggle is never overridden from under them.
+  const [tablesOpen, setTablesOpen] = useState(() => run.verify_jobs.length === 0);
 
   async function act(fn: () => Promise<unknown>) {
     setError(null);
@@ -38,10 +42,12 @@ export function SearchStep({ run, refetch }: { run: RunDetail; refetch: () => Pr
         <h2 id="search-heading" className="text-xl">1. Search</h2>
         <div className="flex gap-2">
           {active && (
-            <Button variant="outline" disabled={active.state !== "running"} onClick={() => act(() => api.cancelJob(active.id))}>Cancel</Button>
+            <Button variant="outline" disabled={active.state === "cancelling"} onClick={() => act(() => api.cancelJob(active.id))}>Cancel</Button>
           )}
-          {!run.active_job && (c.failed > 0 || c.pending > 0) && (
-            <Button variant="outline" onClick={() => act(() => api.retryFailed(run.id))}>Retry failed queries</Button>
+          {!run.active_job && run.status !== "failed" && (c.failed > 0 || c.pending > 0) && (
+            <Button variant="outline" onClick={() => act(() => api.retryFailed(run.id))}>
+              {c.pending > 0 ? "Resume unfinished queries" : "Retry failed queries"}
+            </Button>
           )}
           {!active && c.serp_rows > 0 && (
             <a href={`/api/runs/${run.id}/serp.xlsx`} download className={cn(buttonVariants({ variant: "outline" }))}>
@@ -71,8 +77,23 @@ export function SearchStep({ run, refetch }: { run: RunDetail; refetch: () => Pr
         </p>
       </div>
       {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
-      <QueryTable queries={run.queries} />
-      {c.serp_rows > 0 && <SerpResultsTable runId={run.id} version={c.serp_rows} />}
+      {active ? (
+        <>
+          <QueryTable queries={run.queries} />
+          {c.serp_rows > 0 && <SerpResultsTable runId={run.id} version={c.serp_rows} />}
+        </>
+      ) : (
+        <details
+          open={tablesOpen}
+          onToggle={(e) => setTablesOpen((e.target as HTMLDetailsElement).open)}
+        >
+          <summary className="cursor-pointer text-sm text-brand-blue">Show queries and results</summary>
+          <div className="mt-3 space-y-4">
+            <QueryTable queries={run.queries} />
+            {c.serp_rows > 0 && <SerpResultsTable runId={run.id} version={c.serp_rows} />}
+          </div>
+        </details>
+      )}
     </section>
   );
 }

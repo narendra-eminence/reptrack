@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { api, errorMessage } from "@/lib/api";
 import { fmt, fmtDateTime } from "@/lib/format";
-import { searchDone } from "@/lib/steps";
+import { verifyAvailable } from "@/lib/steps";
 import { cn } from "@/lib/utils";
 import type { BrandSet, RunDetail, VerifyJob } from "@/lib/types";
 
@@ -27,7 +27,7 @@ export function VerifyStep({ run, refetch }: { run: RunDetail; refetch: () => Pr
     api.brands().then((r) => setSets(r.sets)).catch((e) => setError(errorMessage(e)));
   }, []);
 
-  if (!searchDone(run)) {
+  if (!verifyAvailable(run)) {
     return (
       <section aria-labelledby="verify-heading" className="space-y-2">
         <h2 id="verify-heading" className="text-xl text-neutral-400">2. Verify</h2>
@@ -38,6 +38,7 @@ export function VerifyStep({ run, refetch }: { run: RunDetail; refetch: () => Pr
 
   const selectedSet = sets?.find((s) => s.name === selected);
   const latest = run.verify_jobs[0];
+  const pending = run.counts.pending;
 
   async function start() {
     setStarting(true);
@@ -67,6 +68,11 @@ export function VerifyStep({ run, refetch }: { run: RunDetail; refetch: () => Pr
           </Field>
           <Link href="/brands" className="block text-sm text-brand-blue hover:underline">Edit brands</Link>
           <Button disabled={!selected || !!run.active_job || starting} onClick={start}>Start verification</Button>
+          {pending > 0 && (
+            <p className="text-sm text-amber-800">
+              {pending} {pending === 1 ? "query" : "queries"} unfinished; verifying the results collected so far.
+            </p>
+          )}
           {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
         </div>
         <div className="space-y-1.5">
@@ -78,7 +84,7 @@ export function VerifyStep({ run, refetch }: { run: RunDetail; refetch: () => Pr
           )}
         </div>
       </div>
-      {latest && <VerifyJobPanel run={run} job={latest} liveSets={sets} refetch={refetch} />}
+      {latest && <VerifyJobPanel key={latest.id} run={run} job={latest} liveSets={sets} refetch={refetch} />}
       {run.verify_jobs.length > 1 && <EarlierVerifications run={run} jobs={run.verify_jobs.slice(1)} />}
     </section>
   );
@@ -86,6 +92,7 @@ export function VerifyStep({ run, refetch }: { run: RunDetail; refetch: () => Pr
 
 function VerifyJobPanel({ run, job, liveSets, refetch }: { run: RunDetail; job: VerifyJob; liveSets: BrandSet[] | null; refetch: () => Promise<void> }) {
   const [status, setStatus] = useState("");
+  const [cancelError, setCancelError] = useState<string | null>(null);
   const active = run.active_job?.kind === "verify" && run.active_job.ref_id === job.id ? run.active_job : null;
   const live = liveSets?.find((s) => s.name === job.brand_set);
   const changed = liveSets !== null && JSON.stringify(live?.rules ?? null) !== JSON.stringify(job.brand_rules);
@@ -115,16 +122,33 @@ function VerifyJobPanel({ run, job, liveSets, refetch }: { run: RunDetail; job: 
             {job.finished_at && !active ? ` · finished ${fmtDateTime(job.finished_at)}` : ""}
           </span>
           {active && (
-            <Button variant="outline" size="sm" disabled={active.state !== "running"} onClick={() => api.cancelJob(active.id).then(refetch)}>Cancel</Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={active.state === "cancelling"}
+              onClick={() => {
+                setCancelError(null);
+                api.cancelJob(active.id).then(refetch).catch((e) => setCancelError(errorMessage(e)));
+              }}
+            >
+              Cancel
+            </Button>
           )}
         </div>
+        {cancelError && <p role="alert" className="text-sm text-red-700">{cancelError}</p>}
       </div>
-      <StatusChips counts={job.status_counts} selected={job.status === "done" ? status : undefined} onSelect={job.status === "done" ? setStatus : undefined} />
+      {job.status === "failed" && job.error && <p role="alert" className="text-sm text-red-700">{job.error}</p>}
+      <div className="space-y-1.5">
+        <p className="text-sm text-neutral-500">Unique URLs by status</p>
+        <StatusChips counts={job.status_counts} selected={job.status === "done" ? status : undefined} onSelect={job.status === "done" ? setStatus : undefined} />
+      </div>
       {job.status === "done" && (
         <VerifyResultsTable
+          key={status}
           runId={run.id}
           verifyJobId={job.id}
           status={status}
+          defaultHideDuplicates={!!status}
           actions={
             <a href={`/api/runs/${run.id}/verify/${job.id}/verified.xlsx`} download className={cn(buttonVariants({ variant: "outline" }))}>
               Download verified xlsx
@@ -149,6 +173,7 @@ function EarlierVerifications({ run, jobs }: { run: RunDetail; jobs: VerifyJob[]
             {j.has_output && (
               <a className="text-brand-blue hover:underline" href={`/api/runs/${run.id}/verify/${j.id}/verified.xlsx`} download>Download</a>
             )}
+            {j.status === "failed" && j.error && <span className="text-red-700">{j.error}</span>}
           </li>
         ))}
       </ul>
