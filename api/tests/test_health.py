@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 import playwright
 
@@ -30,3 +31,20 @@ def test_correct_revision_folder_is_installed(tmp_path, monkeypatch):
     monkeypatch.setenv("PLAYWRIGHT_BROWSERS_PATH", str(tmp_path))
     (tmp_path / f"chromium_headless_shell-{_expected_revision()}").mkdir()
     assert _chromium_installed() is True
+
+
+def test_malformed_browsers_json_returns_false(tmp_path, monkeypatch):
+    """Invalid JSON in browsers.json should return False instead of raising JSONDecodeError."""
+    # Create a temporary invalid browsers.json
+    browsers_json_path = tmp_path / "browsers.json"
+    browsers_json_path.write_text("{ invalid json }")
+
+    # Monkeypatch the path resolution to use our invalid JSON file
+    def mock_resolve_path(*args, **kwargs):
+        return browsers_json_path
+
+    with patch(
+        "pipeline_api.routes.health.Path",
+        side_effect=lambda p: mock_resolve_path(p) if "browsers.json" in str(p) else Path(p),
+    ):
+        assert _chromium_installed() is False

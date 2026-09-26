@@ -23,7 +23,7 @@ def _chromium_installed() -> bool:
     browsers_json = Path(playwright.__file__).resolve().parent / "driver" / "package" / "browsers.json"
     try:
         data = json.loads(browsers_json.read_text())
-    except OSError:
+    except (OSError, ValueError):
         return False
     revision = next(
         (b["revision"] for b in data.get("browsers", []) if b.get("name") == "chromium-headless-shell"),
