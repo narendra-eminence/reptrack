@@ -76,6 +76,7 @@ def results(
     q: str = "",
 ) -> dict:
     limit = max(1, min(limit, 500))
+    offset = max(0, offset)
     where = "verify_job_id = ?"
     args: list[Any] = [vj_id]
     if status:
@@ -91,7 +92,7 @@ def results(
         total = conn.execute(f"SELECT COUNT(*) FROM verify_rows WHERE {where}", args).fetchone()[0]
         rows = conn.execute(
             f"SELECT seq, status, is_duplicate, row_json FROM verify_rows WHERE {where} ORDER BY seq LIMIT ? OFFSET ?",
-            [*args, limit, max(0, offset)],
+            [*args, limit, offset],
         ).fetchall()
     return {
         "total": total,

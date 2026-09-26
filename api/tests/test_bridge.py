@@ -35,3 +35,22 @@ def test_health_and_options(settings, monkeypatch):
         options = client.get("/api/options").json()
         assert options["verticals"] == ["web", "news", "news_tab"]
         assert options["max_pages"] == {"serpapi": 50, "dataforseo": 20}
+
+
+def test_health_reports_malformed_yaml_instead_of_500(settings):
+    """A hand-broken config.yaml (malformed YAML, or a well-formed top-level list/scalar instead of a mapping)
+    must show up as verifier_config_error, never as a 500 - see verify.snapshot_rules for the same guarantee on
+    the /verify route."""
+    settings.verifier_config.write_text("brands: [unclosed")
+    with TestClient(create_app(settings)) as client:
+        r = client.get("/api/health")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["ok"] is False
+        assert body["verifier_config_error"]  # yaml.YAMLError's message, not a raised 500
+
+    settings.verifier_config.write_text("- a\n- b\n")
+    with TestClient(create_app(settings)) as client:
+        r = client.get("/api/health")
+        assert r.status_code == 200
+        assert r.json()["verifier_config_error"] is not None

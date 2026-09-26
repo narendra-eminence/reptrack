@@ -43,12 +43,16 @@ def _chromium_installed() -> bool:
 @router.get("/api/health")
 def health(request: Request) -> dict:
     deps = request.app.state.deps
+    import yaml
     from urlverify.config import ConfigError, load_config
 
     config_error = None
     try:
         load_config(deps.settings.verifier_config)
-    except (ConfigError, OSError, ValueError) as e:
+    # See verify.snapshot_rules for why yaml.YAMLError/AttributeError/TypeError join ConfigError/OSError/ValueError
+    # here: malformed YAML, or a well-formed but top-level list/scalar document, must report as verifier_config_error
+    # instead of a 500.
+    except (ConfigError, OSError, ValueError, yaml.YAMLError, AttributeError, TypeError) as e:
         config_error = str(e)
     keys = provider_key_status(deps.bs)
     result = {

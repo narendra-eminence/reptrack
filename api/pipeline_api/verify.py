@@ -29,11 +29,17 @@ from .jobs import JobContext, JobKind, JobOutcome, JobRecord
 
 def snapshot_rules(config_path: Path, brand_set: str) -> str:
     """Resolve the set from a FRESH read of config.yaml and deep-copy it to JSON. Exact name; no fallback."""
+    import yaml
     from urlverify.config import ConfigError, load_config
 
     try:
         cfg = load_config(config_path)
-    except (ConfigError, OSError, ValueError) as e:
+    # yaml.safe_load raises yaml.YAMLError (not a ValueError) on malformed YAML; a well-formed but top-level
+    # list/scalar document (instead of a mapping) makes load_config's raw.get(...) raise AttributeError, and a
+    # value of the wrong type for a field it expects can raise TypeError deep inside load_config. Every one of
+    # these is "the config file this app was told to use is broken", exactly like ConfigError/OSError/ValueError -
+    # never a 500.
+    except (ConfigError, OSError, ValueError, yaml.YAMLError, AttributeError, TypeError) as e:
         raise ApiError(422, f"The verifier config {config_path} could not be read: {e}") from None
     rules = cfg.brands.get(brand_set)
     if rules is None:
@@ -73,16 +79,35 @@ class VerifierThread:
             self._started.set()
             if self._cancel_requested.is_set():
                 self._task.cancel()
-            return loop.run_until_complete(self._task)
-        except asyncio.CancelledError:
-            return None
+            try:
+                return loop.run_until_complete(self._task)
+            except asyncio.CancelledError:
+                if self._cancel_requested.is_set():
+                    return None  # a cancel() call asked for exactly this
+                # Nothing in this class ever cancels the task on its own, so a CancelledError that arrives without
+                # a matching cancel() request is not a cancellation this job recognizes - fail loudly instead of
+                # quietly reporting JobOutcome.CANCELLED for something else going wrong.
+                raise RuntimeError("verifier was cancelled unexpectedly") from None
         finally:
             self._started.set()
-            try:
-                loop.run_until_complete(loop.shutdown_asyncgens())
-            finally:
-                asyncio.set_event_loop(None)
-                loop.close()
+            self._shutdown(loop)
+
+    @staticmethod
+    def _shutdown(loop: asyncio.AbstractEventLoop) -> None:
+        """Mirrors asyncio.run's own teardown (cancel every remaining task, drain it, then shut down async
+        generators and the default executor) before closing the loop - so a task left behind by an early return
+        (e.g. the CancelledError branch above) does not leak a pending task/coroutine warning."""
+        try:
+            pending = asyncio.all_tasks(loop)
+            if pending:
+                for task in pending:
+                    task.cancel()
+                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            loop.run_until_complete(loop.shutdown_asyncgens())
+            loop.run_until_complete(loop.shutdown_default_executor())
+        finally:
+            asyncio.set_event_loop(None)
+            loop.close()
 
     def cancel(self) -> None:
         """Cooperative: takes effect at the pipeline's next await; a synchronous step in progress finishes first."""
@@ -102,8 +127,10 @@ def _jsonable(value: Any) -> Any:
     return str(value)
 
 
-def ingest_verified(conn: sqlite3.Connection, verify_job_id: int, path: Path) -> int:
-    """Copy every row of the verified sheet into verify_rows. The caller holds the transaction."""
+def _read_verified_rows(path: Path) -> list[tuple[int, str | None, int, str]]:
+    """Parse the verified sheet into (seq, status, is_duplicate, row_json) tuples. Pure I/O on the sheet only - no
+    database access - so a caller can do this parsing before opening a write transaction, and not hold the
+    database's write lock while it works through a possibly large sheet."""
     from urlverify.annotate import DUPLICATE_COLUMN
 
     wb = load_workbook(path, read_only=True, data_only=True)
@@ -111,25 +138,41 @@ def ingest_verified(conn: sqlite3.Connection, verify_job_id: int, path: Path) ->
         ws = wb.worksheets[0]
         it = ws.iter_rows(values_only=True)
         header = [str(h) if h is not None else "" for h in next(it)]
-        status_i = header.index("Status") if "Status" in header else None
+        if "Status" not in header:
+            # The job's whole guarantee is "every row carries exactly the verdict the pipeline wrote" - a sheet
+            # with no Status column at all means something upstream is badly wrong, not a row to ingest blank.
+            raise ValueError(f"verified sheet {path.name} has no 'Status' column (columns: {header})")
+        status_i = header.index("Status")
         dup_i = header.index(DUPLICATE_COLUMN) if DUPLICATE_COLUMN in header else None
         batch = []
         for seq, raw in enumerate(it):
             values = list(raw) + [None] * (len(header) - len(raw))
             row = {h: _jsonable(v) for h, v in zip(header, values, strict=True)}
             is_dup = int(dup_i is not None and values[dup_i] not in (None, ""))
-            status = values[status_i] if status_i is not None else None
             # ensure_ascii=False: keeps literal non-ASCII characters (curly apostrophes, accents, etc.) in the
             # stored JSON so the results endpoint's LIKE search can match them literally - matching
             # runs.store_query_result's own convention.
-            batch.append((verify_job_id, seq, status, is_dup, json.dumps(row, ensure_ascii=False)))
-        conn.execute("DELETE FROM verify_rows WHERE verify_job_id = ?", (verify_job_id,))
-        conn.executemany(
-            "INSERT INTO verify_rows (verify_job_id, seq, status, is_duplicate, row_json) VALUES (?, ?, ?, ?, ?)", batch
-        )
-        return len(batch)
+            batch.append((seq, values[status_i], is_dup, json.dumps(row, ensure_ascii=False)))
+        return batch
     finally:
         wb.close()
+
+
+def _write_verified_rows(
+    conn: sqlite3.Connection, verify_job_id: int, rows: list[tuple[int, str | None, int, str]]
+) -> int:
+    """Replace verify_job_id's rows with `rows`. The caller holds the transaction."""
+    conn.execute("DELETE FROM verify_rows WHERE verify_job_id = ?", (verify_job_id,))
+    conn.executemany(
+        "INSERT INTO verify_rows (verify_job_id, seq, status, is_duplicate, row_json) VALUES (?, ?, ?, ?, ?)",
+        [(verify_job_id, seq, status, is_dup, row_json) for seq, status, is_dup, row_json in rows],
+    )
+    return len(rows)
+
+
+def ingest_verified(conn: sqlite3.Connection, verify_job_id: int, path: Path) -> int:
+    """Copy every row of the verified sheet into verify_rows. The caller holds the transaction."""
+    return _write_verified_rows(conn, verify_job_id, _read_verified_rows(path))
 
 
 class _Progress:
@@ -217,8 +260,14 @@ async def run_verify(ctx: JobContext, deps: Deps) -> JobOutcome:
                 flush()
                 last_flush = time.monotonic()
         counts = fut.result()
-    except asyncio.CancelledError:
-        vt.cancel()  # runner shutdown: stop the thread; the job stays 'running' and is re-queued on restart
+    except (asyncio.CancelledError, Exception) as e:
+        # Runner shutdown (CancelledError) or the pipeline itself raising: either way this job did not finish,
+        # so neither the per-run input (regenerated from serp_rows on the next attempt) nor a partial output file
+        # should be left behind for a later listing/export to trip over.
+        if isinstance(e, asyncio.CancelledError):
+            vt.cancel()  # stop the thread; the job stays 'running' and is re-queued on restart
+        input_path.unlink(missing_ok=True)
+        output_path.unlink(missing_ok=True)
         raise
     finally:
         executor.shutdown(wait=False)
@@ -227,8 +276,11 @@ async def run_verify(ctx: JobContext, deps: Deps) -> JobOutcome:
         output_path.unlink(missing_ok=True)
         return JobOutcome.CANCELLED
     final = {k: v for k, v in counts.items() if not k.startswith("_")}
+    # Parse the (possibly large) verified sheet BEFORE opening the write transaction: the immediate lock is then
+    # held only for the few small writes that follow, not for however long parsing takes.
+    parsed_rows = _read_verified_rows(output_path)
     with session(ctx.db_path) as conn, transaction(conn, immediate=True):
-        ingest_verified(conn, vj_id, output_path)
+        _write_verified_rows(conn, vj_id, parsed_rows)
         conn.execute(
             "UPDATE verify_jobs SET status = 'done', done_urls = ?, status_counts_json = ?, output_path = ?, "
             "finished_at = ? WHERE id = ?",

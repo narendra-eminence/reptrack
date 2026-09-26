@@ -84,6 +84,8 @@ def page_server():
     t.start()
     yield f"http://127.0.0.1:{srv.server_address[1]}"
     srv.shutdown()
+    srv.server_close()  # shutdown() only stops serve_forever's loop; this actually closes the listening socket
+    t.join(timeout=5)
 
 
 class FakeSearch:

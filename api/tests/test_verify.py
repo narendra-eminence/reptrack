@@ -29,11 +29,18 @@ def _write_output(output_path, rows):
     pd.DataFrame(rows).to_excel(output_path, index=False)
 
 
-def fake_pipeline(behaviour, record: list[dict] | None = None, gate: threading.Event | None = None):
+def fake_pipeline(
+    behaviour,
+    record: list[dict] | None = None,
+    gate: threading.Event | None = None,
+    started: threading.Event | None = None,
+):
     async def run(input_path, output_path, cfg, brand, cache_dir="cache", rules=None, on_result=None, **kw):
         if record is not None:
             record.append({"brand": brand, "rules": rules, "cache_dir": cache_dir})
         if behaviour == "block_cpu":
+            if started is not None:
+                started.set()  # the test waits on this so it times health calls DURING the blocking sleep below
             time.sleep(1.5)  # synchronous work on the verifier thread's own loop
         if behaviour == "forever":
             while True:
@@ -98,6 +105,24 @@ def test_verify_happy_path_with_real_pipeline_and_snapshot(settings, keys, page_
         assert c.post(f"/api/runs/{run_id}/verify", json={"brand_set": "acme"}).status_code == 422  # deleted now
 
 
+def test_malformed_config_yaml_is_422_not_500(settings, keys):
+    settings.verifier_config.write_text("brands: [unclosed")
+    with make_client(settings, search_one=FakeSearch(), pipeline_run=fake_pipeline("ok")) as c:
+        run_id = _scraped_run(c, None)
+        r = c.post(f"/api/runs/{run_id}/verify", json={"brand_set": "acme"})
+        assert r.status_code == 422
+        assert settings.verifier_config.name in r.json()["error"]
+
+
+def test_top_level_list_config_yaml_is_422_not_500(settings, keys):
+    settings.verifier_config.write_text("- a\n- b\n")
+    with make_client(settings, search_one=FakeSearch(), pipeline_run=fake_pipeline("ok")) as c:
+        run_id = _scraped_run(c, None)
+        r = c.post(f"/api/runs/{run_id}/verify", json={"brand_set": "acme"})
+        assert r.status_code == 422
+        assert settings.verifier_config.name in r.json()["error"]
+
+
 def test_unknown_brand_set_rejected(settings, keys):
     with make_client(settings, search_one=FakeSearch(), pipeline_run=fake_pipeline("ok")) as c:
         run_id = _scraped_run(c, None)
@@ -107,10 +132,13 @@ def test_unknown_brand_set_rejected(settings, keys):
 
 
 def test_verify_does_not_block_the_api(settings, keys):
-    with make_client(settings, search_one=FakeSearch(), pipeline_run=fake_pipeline("block_cpu")) as c:
+    started = threading.Event()
+    with make_client(settings, search_one=FakeSearch(), pipeline_run=fake_pipeline("block_cpu", started=started)) as c:
         run_id = _scraped_run(c, None)
         c.post(f"/api/runs/{run_id}/verify", json={"brand_set": "acme"})
-        wait_until(lambda: c.get(f"/api/runs/{run_id}").json()["verify_jobs"][0]["status"] == "running")
+        # Proves the timing below actually lands during the fake pipeline's blocking time.sleep(1.5), rather than
+        # relying on verify_jobs.status == "running" (set before the blocking call even starts) as a proxy for it.
+        assert started.wait(10), "fake pipeline never reached its blocking sleep"
         timings = []
         for _ in range(3):
             t0 = time.monotonic()
@@ -190,7 +218,7 @@ def test_ingest_handles_datetimes_blanks_and_numbers(tmp_path):
     ws = wb.active
     assert ws is not None
     ws.append(["Link", "Status", "Published Date", "Query Count", "Duplicate Of Row", "Notes"])
-    ws.append(["https://a", "Verified", datetime(2026, 5, 1, 10, 30), 2, None, None])
+    ws.append(["https://a", "Verified", datetime(2026, 5, 1, 10, 30), 2, None, "Safari’s café review"])
     ws.append(["https://a?x", "Verified", None, 1.5, 2, "dup"])
     wb.save(path)
     with session(db) as conn:
@@ -206,8 +234,13 @@ def test_ingest_handles_datetimes_blanks_and_numbers(tmp_path):
         )
         assert ingest_verified(conn, 1, path) == 2
         rows = conn.execute("SELECT * FROM verify_rows ORDER BY seq").fetchall()
-    first = json.loads(rows[0]["row_json"])
-    assert first["Published Date"] == "2026-05-01T10:30:00" and first["Notes"] is None
+    raw = rows[0]["row_json"]
+    # ensure_ascii=False, exercised through ingest_verified itself (not hand-written JSON): the literal curly
+    # apostrophe and accented "e" survive in the stored JSON rather than becoming "’"/"é" escapes.
+    assert "Safari’s café review" in raw
+    assert "\\u2019" not in raw and "\\u00e9" not in raw
+    first = json.loads(raw)
+    assert first["Published Date"] == "2026-05-01T10:30:00" and first["Notes"] == "Safari’s café review"
     assert rows[1]["is_duplicate"] == 1 and rows[0]["is_duplicate"] == 0
 
 
@@ -251,9 +284,23 @@ def test_results_text_search_escapes_like_wildcards_and_finds_non_ascii(settings
                 "(?, 2, 'Verified', 0, ?)",
                 (vj_id, json.dumps({"title": "1000 off", "link": "https://c"}, ensure_ascii=False)),
             )
+            conn.execute(
+                "INSERT INTO verify_rows (verify_job_id, seq, status, is_duplicate, row_json) VALUES "
+                "(?, 3, 'Verified', 0, ?)",
+                (vj_id, json.dumps({"title": "cat_dog", "link": "https://d"}, ensure_ascii=False)),
+            )
+            conn.execute(
+                "INSERT INTO verify_rows (verify_job_id, seq, status, is_duplicate, row_json) VALUES "
+                "(?, 4, 'Verified', 0, ?)",
+                (vj_id, json.dumps({"title": "catXdog", "link": "https://e"}, ensure_ascii=False)),
+            )
         res = c.get(f"/api/runs/{run_id}/verify/{vj_id}/results", params={"q": "Safari’s café"})
         assert res.json()["total"] == 1
         res_pct = c.get(f"/api/runs/{run_id}/verify/{vj_id}/results", params={"q": "100%"})
         # A literal '%' must not act as an unescaped SQL LIKE wildcard: "100%" must match only the row that
         # literally contains "100%", never the unrelated "1000 off" row.
         assert res_pct.json()["total"] == 1
+        res_underscore = c.get(f"/api/runs/{run_id}/verify/{vj_id}/results", params={"q": "cat_dog"})
+        # Likewise for '_': SQL LIKE treats it as "any single character", so an unescaped "_" would also match
+        # "catXdog". Escaped, only the row literally containing "cat_dog" matches.
+        assert res_underscore.json()["total"] == 1
