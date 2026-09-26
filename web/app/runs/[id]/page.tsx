@@ -1,10 +1,12 @@
 "use client";
 
 import { use } from "react";
+import { DoneStep } from "@/components/DoneStep";
 import { RunHeader } from "@/components/RunHeader";
 import { RunNotices } from "@/components/RunNotices";
 import { SearchStep } from "@/components/SearchStep";
 import { Stepper } from "@/components/Stepper";
+import { VerifyStep } from "@/components/VerifyStep";
 import { stepStates } from "@/lib/steps";
 import { useRun } from "@/lib/useRun";
 
@@ -19,6 +21,8 @@ export default function RunPage({ params }: { params: Promise<{ id: string }> })
       <Stepper steps={stepStates(run)} />
       <RunNotices run={run} refetch={refetch} />
       <SearchStep run={run} refetch={refetch} />
+      <VerifyStep run={run} refetch={refetch} />
+      <DoneStep run={run} />
     </div>
   );
 }
