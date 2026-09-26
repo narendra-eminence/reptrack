@@ -51,7 +51,7 @@ export function SearchStep({ run, refetch }: { run: RunDetail; refetch: () => Pr
         </div>
       </div>
       <p className="text-sm text-neutral-600">
-        {PROVIDER_LABEL[run.provider]} · {VERTICAL_LABEL[run.vertical]} · {run.pages} pages per query · {period(run)} · up to {fmt(run.max_calls)} billable pages
+        {PROVIDER_LABEL[run.provider]} · {VERTICAL_LABEL[run.vertical]} · {run.pages} {run.pages === 1 ? "page" : "pages"} per query · {period(run)} · up to {fmt(run.max_calls)} billable pages
       </p>
       <div data-testid="search-progress" className="space-y-3 rounded-md border p-4">
         <div className="flex items-baseline justify-between gap-4 text-sm tabular-nums">

@@ -20,13 +20,13 @@ export function RunHeader({ run }: { run: RunDetail }) {
 
   async function remove() {
     setBusy(true);
+    setError(null);
     try {
       await api.deleteRun(run.id);
       router.push("/");
     } catch (e) {
       setError(errorMessage(e));
       setBusy(false);
-      setOpen(false);
     }
   }
 
@@ -38,15 +38,15 @@ export function RunHeader({ run }: { run: RunDetail }) {
           <StatusBadge status={run.status} />
         </div>
         <p className="mt-1 text-sm text-neutral-600">Created {fmtDateTime(run.created_at)}</p>
-        <p className="mt-1 min-h-5 text-sm text-red-700">{error && <span role="alert">{error}</span>}</p>
       </div>
       <Button variant="outline" disabled={!!run.active_job} onClick={() => { setError(null); setOpen(true); }}>Delete run</Button>
-      <AlertDialog open={open} onOpenChange={(o) => { if (!busy) setOpen(o); }}>
+      <AlertDialog open={open} onOpenChange={(o) => { if (!busy) { setOpen(o); if (!o) setError(null); } }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this run?</AlertDialogTitle>
             <AlertDialogDescription>Its queries, results, verifications and exported files are removed. This cannot be undone.</AlertDialogDescription>
           </AlertDialogHeader>
+          {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
             <AlertDialogAction

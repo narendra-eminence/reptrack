@@ -17,11 +17,11 @@ export function QueryTable({ queries }: { queries: QueryRow[] }) {
           <col />
           <col className="w-24" />
           <col className="w-20" />
+          <col className="w-36" />
           <col className="w-28" />
-          <col className="w-24" />
           <col className="w-[30%]" />
         </colgroup>
-        <thead className="sticky top-0 bg-neutral-50 text-left text-xs uppercase tracking-wide text-neutral-500">
+        <thead className="sticky top-0 whitespace-nowrap bg-neutral-50 text-left text-xs uppercase tracking-wide text-neutral-500">
           <tr>
             <th className="px-3 py-2">#</th>
             <th className="px-3 py-2">Query</th>
@@ -36,7 +36,7 @@ export function QueryTable({ queries }: { queries: QueryRow[] }) {
           {queries.map((q) => (
             <tr key={q.id} data-testid={`query-row-${q.position}`} className="border-t">
               <td className="px-3 py-2 tabular-nums text-neutral-500">{q.position + 1}</td>
-              <td className="px-3 py-2"><Clip text={q.text} className="font-mono text-xs" /></td>
+              <td className="px-3 py-2"><Clip text={q.text} className="font-mono" /></td>
               <td className={cn("px-3 py-2", STATE[q.state].cls)}>{STATE[q.state].label}</td>
               <td className="px-3 py-2 text-right tabular-nums">{q.found ?? ""}</td>
               <td className="px-3 py-2 text-right tabular-nums">{q.out_of_range ?? ""}</td>

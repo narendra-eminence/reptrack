@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { api, errorMessage } from "./api";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ApiError, api, errorMessage } from "./api";
 import type { RunDetail, RunEvent } from "./types";
 
 export function applyEvent(prev: RunDetail | null, ev: RunEvent): RunDetail | null {
@@ -33,6 +33,7 @@ export function applyEvent(prev: RunDetail | null, ev: RunEvent): RunDetail | nu
 export function useRun(id: string) {
   const [run, setRun] = useState<RunDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const esRef = useRef<EventSource | null>(null);
 
   const refetch = useCallback(async () => {
     try {
@@ -40,11 +41,14 @@ export function useRun(id: string) {
       setError(null);
     } catch (e) {
       setError(errorMessage(e));
+      // the run is gone; stop the EventSource so the browser doesn't keep reconnecting forever
+      if (e instanceof ApiError && e.status === 404) esRef.current?.close();
     }
   }, [id]);
 
   useEffect(() => {
     const es = new EventSource(`/api/runs/${id}/events`);
+    esRef.current = es;
     es.onmessage = (m) => {
       const ev = JSON.parse(m.data) as RunEvent;
       setRun((prev) => applyEvent(prev, ev));
