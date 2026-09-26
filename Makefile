@@ -1,6 +1,6 @@
 COMPANY_MONITOR_DIR ?= $(HOME)/Desktop/Eminence/CompanyMonitor
 URL_VERIFICATION_DIR ?= $(HOME)/Desktop/niks/url-verification
-API = uv run uvicorn pipeline_api.main:create_app --factory --host 127.0.0.1 --port 8000
+API = uv run uvicorn pipeline_api.main:create_app --factory --host 127.0.0.1 --port 8000 --timeout-graceful-shutdown 3
 
 .PHONY: install dev start lint test e2e check
 

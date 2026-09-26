@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -52,18 +53,24 @@ def create_app(
     bus = EventBus()
     runner = JobRunner(settings.db_path, bus, {"scrape": scrape_kind(deps), "verify": verify_kind(deps)})
 
+    shutdown = asyncio.Event()
+
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         await runner.start()
         try:
             yield
         finally:
+            # Set before runner.stop(): any open /events stream must end promptly on its own, rather than uvicorn
+            # waiting for the client to disconnect ("Waiting for connections to close" on --reload/shutdown).
+            shutdown.set()
             await runner.stop()
 
     app = FastAPI(title="RepScore Pipeline API", lifespan=lifespan)
     app.state.deps = deps
     app.state.bus = bus
     app.state.runner = runner
+    app.state.shutdown = shutdown
     install_error_handlers(app)
     app.include_router(health.router)
     app.include_router(runs_routes.router)
