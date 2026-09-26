@@ -18,6 +18,8 @@ test("previews parsed queries and billable pages before spending", async ({ page
   await page.getByLabel("Vertical").selectOption("news");
   await expect(page.getByTestId("plan-pages")).toHaveText("1");
   await expect(page.getByTestId("plan-max")).toHaveText("3");
+  await expect(page.getByLabel("Pages per query")).toHaveValue("1");
+  await expect(page.getByLabel("Pages per query")).toBeDisabled();
   await shot(page, "new-run", info);
 
   await page.getByRole("button", { name: "Run search" }).click();

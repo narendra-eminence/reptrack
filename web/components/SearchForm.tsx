@@ -34,6 +34,7 @@ export function SearchForm() {
 
   const set = <K extends keyof SearchInput>(key: K, value: SearchInput[K]) => setForm((f) => ({ ...f, [key]: value }));
   const canRun = !!plan && !error && !loading && !submitting;
+  const isNews = form.vertical === "news"; // news cannot paginate; the API always pins it to 1 (bulk_search.pages_for)
 
   async function submit() {
     if (!plan) return;
@@ -45,7 +46,6 @@ export function SearchForm() {
     } catch (e) {
       setSubmitError(errorMessage(e));
       setSubmitting(false);
-      setConfirmOpen(false);
     }
   }
 
@@ -53,7 +53,13 @@ export function SearchForm() {
     <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_360px]">
       <section className="space-y-6">
         <Field id="queries" label="Queries" hint="One query per line. Boolean operators and quotes are fine. A comma also splits queries, so check the parsed list.">
-          <Textarea id="queries" rows={14} value={form.queries} onChange={(e) => set("queries", e.target.value)} className="font-mono text-sm" />
+          <Textarea
+            id="queries"
+            rows={14}
+            value={form.queries}
+            onChange={(e) => set("queries", e.target.value)}
+            className="field-sizing-fixed h-80 resize-y font-mono text-sm"
+          />
         </Field>
         <div className="grid grid-cols-2 gap-4 xl:grid-cols-5">
           <Field id="provider" label="Engine">
@@ -70,8 +76,20 @@ export function SearchForm() {
               ))}
             </NativeSelect>
           </Field>
-          <Field id="pages" label="Pages per query" hint={`Up to ${options.max_pages[form.provider]} on ${PROVIDER_LABEL[form.provider]}`}>
-            <Input id="pages" type="number" min={1} max={options.max_pages[form.provider]} value={form.pages} onChange={(e) => set("pages", e.target.value)} />
+          <Field
+            id="pages"
+            label="Pages per query"
+            hint={isNews ? "News returns all results in one call" : `Up to ${options.max_pages[form.provider]} on ${PROVIDER_LABEL[form.provider]}`}
+          >
+            <Input
+              id="pages"
+              type="number"
+              min={1}
+              max={options.max_pages[form.provider]}
+              value={isNews ? "1" : form.pages}
+              disabled={isNews}
+              onChange={(e) => set("pages", e.target.value)}
+            />
           </Field>
           <Field id="start" label="Start date">
             <Input id="start" type="date" value={form.start} onChange={(e) => set("start", e.target.value)} />
@@ -83,10 +101,9 @@ export function SearchForm() {
       </section>
       <aside className="space-y-4">
         <PlanPreview plan={plan} error={error} loading={loading} provider={form.provider} />
-        <Button className="w-full" disabled={!canRun} onClick={() => setConfirmOpen(true)}>Run search</Button>
-        {submitError && <p role="alert" className="text-sm text-red-700">{submitError}</p>}
+        <Button className="w-full" disabled={!canRun} onClick={() => { setSubmitError(null); setConfirmOpen(true); }}>Run search</Button>
       </aside>
-      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+      <AlertDialog open={confirmOpen} onOpenChange={(open) => { if (!submitting) setConfirmOpen(open); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Start this search?</AlertDialogTitle>
@@ -94,8 +111,9 @@ export function SearchForm() {
               This can make up to {fmt(plan?.max_calls)} billable SERP page requests on {PROVIDER_LABEL[form.provider]} ({fmt(plan?.cached_calls)} already cached and free). Queries stop early when results run out, so the real number is usually lower.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {submitError && <p role="alert" className="text-sm text-red-700">{submitError}</p>}
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={submitting}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               disabled={submitting}
               onClick={(e) => {
