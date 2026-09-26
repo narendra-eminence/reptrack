@@ -21,9 +21,11 @@ test("verifies results with a chosen brand set and exports", async ({ page }, in
 
   await expect(page.getByTestId("verify-total")).toHaveText("5");
   await page.getByTestId("chip-Verified").click();
-  await expect(page.getByTestId("verify-total")).toHaveText("2");
-  await page.getByLabel("Hide duplicates").check();
+  // Chips count unique URLs by status; selecting one hides duplicates in the table by default.
+  await expect(page.getByLabel("Hide duplicates")).toBeChecked();
   await expect(page.getByTestId("verify-total")).toHaveText("1");
+  await page.getByLabel("Hide duplicates").uncheck();
+  await expect(page.getByTestId("verify-total")).toHaveText("2");
 
   const [download] = await Promise.all([
     page.waitForEvent("download"),

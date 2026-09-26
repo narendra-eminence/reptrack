@@ -16,13 +16,15 @@ export function VerifyResultsTable({
   verifyJobId,
   status,
   actions,
+  defaultHideDuplicates = false,
 }: {
   runId: string;
   verifyJobId: number;
   status: string;
   actions?: ReactNode;
+  defaultHideDuplicates?: boolean;
 }) {
-  const [hideDuplicates, setHideDuplicates] = useState(false);
+  const [hideDuplicates, setHideDuplicates] = useState(defaultHideDuplicates);
   const [input, setInput] = useState("");
   const [query, setQuery] = useState("");
   const [offset, setOffset] = useState(0);
