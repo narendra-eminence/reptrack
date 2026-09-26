@@ -2,14 +2,21 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
 from .db import migrate
 from .deps import Deps, PipelineRunFn, SearchFn
 from .errors import install_error_handlers
+from .events import EventBus
+from .jobs import JobRunner
 from .logs import configure_logging
 from .monitor_bridge import load_bulk_search
 from .routes import health
+from .routes import runs as runs_routes
+from .scrape import scrape_kind
 from .settings import Settings, load_settings
 
 
@@ -27,8 +34,22 @@ def create_app(
         from urlverify.pipeline import run as pipeline_run
     deps = Deps(settings=settings, bs=bs, search_one=search_one or bs.search_one, pipeline_run=pipeline_run)
 
-    app = FastAPI(title="RepScore Pipeline API")
+    bus = EventBus()
+    runner = JobRunner(settings.db_path, bus, {"scrape": scrape_kind(deps)})
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        await runner.start()
+        try:
+            yield
+        finally:
+            await runner.stop()
+
+    app = FastAPI(title="RepScore Pipeline API", lifespan=lifespan)
     app.state.deps = deps
+    app.state.bus = bus
+    app.state.runner = runner
     install_error_handlers(app)
     app.include_router(health.router)
+    app.include_router(runs_routes.router)
     return app
