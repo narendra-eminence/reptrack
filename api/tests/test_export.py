@@ -1,3 +1,4 @@
+import threading
 from typing import cast
 
 from conftest import SEARCH_BODY, FakeSearch, make_client, wait_until
@@ -9,7 +10,7 @@ from pipeline_api.export import slug, write_rows_xlsx
 
 def test_formula_like_text_stays_text_and_control_chars_are_stripped(tmp_path):
     path = tmp_path / "x.xlsx"
-    write_rows_xlsx(path, ["Title", "Snippet"], [['=HYPERLINK("http://evil")', "bad\x0bchars\x1fhere"]], "Sheet")
+    write_rows_xlsx(path, ["Title", "Snippet"], [['=HYPERLINK("http://evil")', "bad\x0bchars\ud800\x1fhere"]], "Sheet")
     ws = load_workbook(path)["Sheet"]
     assert ws["A2"].value == '=HYPERLINK("http://evil")' and ws["A2"].data_type == "s"
     assert ws["B2"].value == "badcharshere"
@@ -29,6 +30,28 @@ def test_serp_export_columns_and_filename(settings, monkeypatch):
     assert ws is not None
     assert [cell.value for cell in ws[1]] == bs.EXPORT_COLUMNS
     assert ws.max_row == 3
+
+
+def test_concurrent_writes_to_the_same_path_both_succeed(tmp_path):
+    """Two threads writing the same xlsx path at once must not collide on a shared fixed temp filename."""
+    path = tmp_path / "shared.xlsx"
+    errors: list[Exception] = []
+
+    def write(n: int) -> None:
+        try:
+            write_rows_xlsx(path, ["A"], [[f"row-{n}-{i}"] for i in range(50)], "Sheet")
+        except Exception as e:  # noqa: BLE001 - captured for the assertion below
+            errors.append(e)
+
+    threads = [threading.Thread(target=write, args=(n,)) for n in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert not errors
+    ws = load_workbook(path)["Sheet"]
+    assert ws.max_row == 51  # header plus whichever writer's 50 rows landed last
 
 
 def test_slug():

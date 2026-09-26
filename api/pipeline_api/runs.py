@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import uuid
 from dataclasses import dataclass
@@ -14,6 +15,8 @@ from .errors import ApiError
 from .jobs import active_job, latest_job
 from .monitor_bridge import key_errors
 from .routes.health import VERTICALS
+
+_ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 @dataclass
@@ -27,6 +30,11 @@ class SearchRequest:
 
 
 def _iso(label: str, value: str) -> date:
+    # date.fromisoformat also accepts "20260301" and ISO week dates like "2026-W10-1" on Python 3.11+; neither is
+    # the YYYY-MM-DD this API promises, and letting one through would leak into start_date, filenames and the
+    # Google query string (after:20260301), so the shape is checked before the value is parsed.
+    if not _ISO_DATE.match(value):
+        raise ApiError(422, f"{label} date {value!r} is not a valid YYYY-MM-DD date")
     try:
         return date.fromisoformat(value)
     except ValueError:
@@ -125,7 +133,11 @@ def store_query_result(
         conn.execute("DELETE FROM serp_rows WHERE query_id = ?", (query_id,))  # a retry replaces earlier rows
         conn.executemany(
             "INSERT INTO serp_rows (run_id, query_id, seq, row_json) VALUES (?, ?, ?, ?)",
-            [(run_id, query_id, i, json.dumps(r)) for i, r in enumerate(rows)],
+            # ensure_ascii=False: the default escapes every non-ASCII codepoint (e.g. "café" style \uXXXX
+            # runs), which would still be valid JSON but would never again contain the literal characters that
+            # serp_rows_page's LIKE search is asked to match ("Safari's" with a curly apostrophe, "cafe" with an
+            # accent, Hindi text, ...).
+            [(run_id, query_id, i, json.dumps(r, ensure_ascii=False)) for i, r in enumerate(rows)],
         )
         conn.execute(
             "UPDATE queries SET state = ?, found = ?, out_of_range = ?, attempts = ?, error = ? WHERE id = ?",
@@ -159,11 +171,18 @@ def serp_rows(conn: sqlite3.Connection, run_id: str) -> list[dict[str, Any]]:
     return [json.loads(r[0]) for r in cur]
 
 
+def _like_pattern(text: str) -> str:
+    """Escape LIKE's own wildcards so a literal '%' or '_' in the search text is matched literally, not as a
+    wildcard - e.g. q="100%" must not also match "1000"."""
+    escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
 def serp_rows_page(conn: sqlite3.Connection, bs: Any, run_id: str, offset: int, limit: int, q: str) -> dict[str, Any]:
     where, args = "s.run_id = ?", [run_id]
     if q:
-        where += " AND s.row_json LIKE ?"
-        args.append(f"%{q}%")
+        where += " AND s.row_json LIKE ? ESCAPE '\\'"
+        args.append(_like_pattern(q))
     total = conn.execute(f"SELECT COUNT(*) FROM serp_rows s WHERE {where}", args).fetchone()[0]
     cur = conn.execute(
         f"SELECT s.row_json FROM serp_rows s JOIN queries qq ON qq.id = s.query_id WHERE {where} "

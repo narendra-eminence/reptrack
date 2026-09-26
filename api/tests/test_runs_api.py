@@ -25,6 +25,8 @@ def test_plan_returns_parsed_queries_so_comma_split_is_visible(settings, keys):
         ({"start": "", "end": "2026-08-31"}, "together"),
         ({"start": "2026-02-30"}, "start"),
         ({"start": "2026-09-01", "end": "2026-08-31"}, "before"),
+        ({"start": "20260301"}, "start"),
+        ({"end": "2026-W10-1"}, "end"),
         ({"vertical": "images"}, "vertical"),
         ({"provider": "bing"}, "provider"),
     ],
@@ -101,6 +103,68 @@ def test_failed_queries_and_retry(settings, keys):
         assert c.post(f"/api/runs/{run_id}/retry-failed").status_code == 200
         wait_until(lambda: c.get(f"/api/runs/{run_id}").json()["last_job"]["state"] == "done")
         assert fake.calls == ["fail: nope"]
+
+
+def test_retry_failed_with_nothing_pending_is_409(settings, keys):
+    with make_client(settings, search_one=FakeSearch()) as c:
+        run_id = c.post("/api/runs", json={**SEARCH_BODY, "confirmed_calls": 2}).json()["id"]
+        wait_until(lambda: c.get(f"/api/runs/{run_id}").json()["status"] == "scraped")
+        r = c.post(f"/api/runs/{run_id}/retry-failed")
+    assert r.status_code == 409
+    assert "No failed or unfinished queries" in r.json()["error"]
+
+
+def test_rows_search_handles_unicode_and_escapes_like_wildcards(settings, keys):
+    from pipeline_api import runs as runs_module
+    from pipeline_api.db import session
+
+    with make_client(settings, search_one=FakeSearch()) as c:
+        run_id = c.post("/api/runs", json={**SEARCH_BODY, "confirmed_calls": 2}).json()["id"]
+        wait_until(lambda: c.get(f"/api/runs/{run_id}").json()["status"] == "scraped")
+
+    def row(link, title, snippet):
+        return {
+            "query": "alpha",
+            "vertical": "web",
+            "provider": "serpapi",
+            "page": 1,
+            "rank": 1,
+            "title": title,
+            "link": link,
+            "domain": "example.com",
+            "date": "",
+            "published": "",
+            "out_of_range": None,
+            "range_start": "",
+            "range_end": "",
+            "snippet": snippet,
+            "outlet": "Example",
+            "fetched_at": "2026-09-26T00:00:00+00:00",
+        }
+
+    rows = [
+        row("https://a.example/apostrophe", "Safari’s luggage sale", "café in Delhi"),
+        row("https://a.example/percent", "100% off luggage", "sale ends soon"),
+        row("https://a.example/thousand", "1000 units left", "no percent here"),
+    ]
+    with session(settings.db_path) as conn:
+        query_id = conn.execute(
+            "SELECT id FROM queries WHERE run_id = ? ORDER BY position LIMIT 1", (run_id,)
+        ).fetchone()["id"]
+        runs_module.store_query_result(conn, run_id, query_id, rows, None, 1, 0)
+
+    with make_client(settings, search_one=FakeSearch()) as c:
+        assert c.get(f"/api/runs/{run_id}/rows", params={"q": "Safari’s"}).json()["total"] == 1
+        assert c.get(f"/api/runs/{run_id}/rows", params={"q": "café"}).json()["total"] == 1
+        page = c.get(f"/api/runs/{run_id}/rows", params={"q": "100%"}).json()
+        assert page["total"] == 1
+        assert page["rows"][0]["Link"] == "https://a.example/percent"
+
+
+def test_cancel_unknown_job_is_404(settings, keys):
+    with make_client(settings, search_one=FakeSearch()) as c:
+        r = c.post("/api/jobs/999999/cancel")
+    assert r.status_code == 404 and "error" in r.json()
 
 
 def test_duplicate_start_is_409(settings, keys):
