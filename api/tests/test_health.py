@@ -7,16 +7,12 @@ Playwright actually wanted (1234) was missing. A glob for `chromium*` would have
 from __future__ import annotations
 
 import json
-from pathlib import Path
-from unittest.mock import patch
 
-import playwright
-
-from pipeline_api.routes.health import _chromium_installed
+from pipeline_api.routes.health import _browsers_json_path, _chromium_installed
 
 
 def _expected_revision() -> str:
-    browsers_json = Path(playwright.__file__).resolve().parent / "driver" / "package" / "browsers.json"
+    browsers_json = _browsers_json_path()
     data = json.loads(browsers_json.read_text())
     return next(b["revision"] for b in data["browsers"] if b["name"] == "chromium-headless-shell")
 
@@ -39,12 +35,9 @@ def test_malformed_browsers_json_returns_false(tmp_path, monkeypatch):
     browsers_json_path = tmp_path / "browsers.json"
     browsers_json_path.write_text("{ invalid json }")
 
-    # Monkeypatch the path resolution to use our invalid JSON file
-    def mock_resolve_path(*args, **kwargs):
-        return browsers_json_path
+    # Monkeypatch the path seam to use our invalid JSON file
+    monkeypatch.setattr("pipeline_api.routes.health._browsers_json_path", lambda: browsers_json_path)
+    # Also set PLAYWRIGHT_BROWSERS_PATH to a temp dir so lookup doesn't find anything
+    monkeypatch.setenv("PLAYWRIGHT_BROWSERS_PATH", str(tmp_path / "cache"))
 
-    with patch(
-        "pipeline_api.routes.health.Path",
-        side_effect=lambda p: mock_resolve_path(p) if "browsers.json" in str(p) else Path(p),
-    ):
-        assert _chromium_installed() is False
+    assert _chromium_installed() is False

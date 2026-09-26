@@ -13,6 +13,11 @@ router = APIRouter()
 VERTICALS = ("web", "news", "news_tab")  # Company Monitor app.py BULK_VERTICALS
 
 
+def _browsers_json_path() -> Path:
+    """Path to Playwright's browsers.json, extracted for test seam."""
+    return Path(playwright.__file__).resolve().parent / "driver" / "package" / "browsers.json"
+
+
 def _chromium_installed() -> bool:
     """True only when the exact Chromium headless-shell build the installed Playwright expects is present.
 
@@ -20,7 +25,7 @@ def _chromium_installed() -> bool:
     verifier could not launch because build 1234 (what this Playwright wants) was missing. So the expected
     revision is read from Playwright's own browsers.json and only that exact folder counts.
     """
-    browsers_json = Path(playwright.__file__).resolve().parent / "driver" / "package" / "browsers.json"
+    browsers_json = _browsers_json_path()
     try:
         data = json.loads(browsers_json.read_text())
     except (OSError, ValueError):
