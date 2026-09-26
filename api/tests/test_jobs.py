@@ -357,3 +357,62 @@ async def test_events_stay_in_order_when_cancel_lands_before_execute_registers(d
         assert states.index("cancelling") < states.index("cancelled")
     finally:
         await runner.stop()
+
+
+async def test_events_stay_in_order_when_cancel_publish_is_delayed(db):
+    """Reproduces the reviewer's order_probe2.py: simulates cancel()'s thread being preempted between committing
+    'cancelling' and calling publish_threadsafe. Since cancel() now publishes from inside its write transaction
+    (before COMMIT), a slow publish call cannot let another thread observe the committed row before the event is
+    enqueued - it just holds the write lock a little longer."""
+
+    async def run(ctx: JobContext) -> JobOutcome:
+        if ctx.cancel.is_set():
+            return JobOutcome.CANCELLED
+        while not ctx.cancel.is_set():
+            await asyncio.sleep(0.01)
+        return JobOutcome.CANCELLED
+
+    bus = EventBus()
+    orig_publish = bus.publish_threadsafe
+    loop_thread_id = threading.get_ident()  # the test coroutine runs on the loop thread
+
+    def slow_publish(run_id, event):
+        if threading.get_ident() != loop_thread_id and event.get("state") == "cancelling":
+            time.sleep(0.3)  # simulate the cancel() thread being preempted right before publishing
+        orig_publish(run_id, event)
+
+    bus.publish_threadsafe = slow_publish
+
+    runner = JobRunner(db, bus, {"fake": JobKind(run=run, on_failed=lambda *a: None, on_cancelled=lambda *a: None)})
+    original_claim = runner._claim_next
+    claimed = threading.Event()
+
+    def delayed_claim():
+        job = original_claim()
+        if job is not None:
+            claimed.set()
+            time.sleep(0.1)
+        return job
+
+    runner._claim_next = delayed_claim
+    q = bus.subscribe("r1")
+    await runner.start()
+    try:
+        job_id = _enqueue(runner, db, "r1")
+
+        def cancel_during_window():
+            claimed.wait(2)
+            runner.cancel(job_id)
+
+        t = threading.Thread(target=cancel_during_window)
+        t.start()
+        await _wait_state(db, job_id, {"cancelled"}, timeout=5.0)
+        t.join(2)
+
+        states = []
+        while not q.empty():
+            states.append(q.get_nowait()["state"])
+        assert "cancelling" in states and "cancelled" in states
+        assert states.index("cancelling") < states.index("cancelled")
+    finally:
+        await runner.stop()

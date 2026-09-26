@@ -166,13 +166,21 @@ class JobRunner:
                 new_state = "cancelling"
             else:
                 return job.state
-        # Publish before poking the cancel event, and via the same publish_threadsafe/call_soon_threadsafe path
-        # that _execute uses for every job-state event: call_soon_threadsafe is FIFO across threads, so as long
-        # as *all* job-state events share this one path, whatever _execute publishes once the job wakes up (or
-        # once it notices this cancel before its first await) is guaranteed to be enqueued after this one.
-        self.bus.publish_threadsafe(
-            job.run_id, {"type": "job", "job_id": job_id, "kind": job.kind, "state": new_state, "error": None}
-        )
+            # Publish *inside* the write transaction, before COMMIT - not after. Publishing after COMMIT leaves a
+            # window where another thread (e.g. _execute's pending-cancel check) can already see the committed
+            # new state and publish its own event (via the same FIFO) before this one lands, if this thread gets
+            # preempted between COMMIT and the publish call. Publishing first closes that: the enqueue onto the
+            # call_soon_threadsafe FIFO happens-before COMMIT, which happens-before any other connection can
+            # observe the new state, so no reader can ever race ahead of this event.
+            # If COMMIT itself then fails, we may have published an event nothing durable backs. Given
+            # `BEGIN IMMEDIATE` already holds the write lock and this transaction is a single UPDATE (plus an
+            # optional hook call, which - like every other hook call in this module - runs inside the same
+            # transaction and its own failure rolls the whole thing back before we ever reach this line), that
+            # COMMIT can only fail on a catastrophic I/O error - a risk this module already accepts uniformly
+            # (every other write path here has the identical exposure, and none of them compensate for it).
+            self.bus.publish_threadsafe(
+                job.run_id, {"type": "job", "job_id": job_id, "kind": job.kind, "state": new_state, "error": None}
+            )
         event = self._cancel_events.get(job_id)
         if event is not None:
             event.set()
@@ -192,14 +200,22 @@ class JobRunner:
                     )
                     continue
                 conn.execute("UPDATE jobs SET state = 'cancelled', finished_at = ? WHERE id = ?", (now(), job.id))
+                # A savepoint around just the hook call: if it raises partway through, any partial writes it
+                # made are undone before this row is overwritten to 'failed' - without rolling back the other
+                # rows already processed in this same batch transaction.
+                conn.execute("SAVEPOINT resume_hook")
                 try:
                     kind.on_cancelled(conn, job)
                 except Exception as e:
+                    conn.execute("ROLLBACK TO SAVEPOINT resume_hook")
+                    conn.execute("RELEASE SAVEPOINT resume_hook")
                     log.exception("on_cancelled hook raised while resuming job #%s; marking failed instead", job.id)
                     conn.execute(
                         "UPDATE jobs SET state = 'failed', error = ? WHERE id = ?",
                         (f"on_cancelled hook failed: {type(e).__name__}: {e}", job.id),
                     )
+                else:
+                    conn.execute("RELEASE SAVEPOINT resume_hook")
             for row in conn.execute("SELECT id FROM jobs WHERE state = 'running'").fetchall():
                 conn.execute("UPDATE jobs SET state = 'queued', resumed_at = ? WHERE id = ?", (now(), row["id"]))
                 resumed.append(row["id"])
@@ -254,11 +270,13 @@ class JobRunner:
 
         # Close the window between _claim_next's commit of 'running' and this registration: a cancel() call
         # landing in that window writes 'cancelling' to the row but finds no event yet to set.
+        observed_state = "running"
         try:
             with session(self.db_path) as conn:
                 row = conn.execute("SELECT state FROM jobs WHERE id = ?", (job.id,)).fetchone()
             if row is not None and row["state"] == "cancelling":
                 cancel.set()
+                observed_state = "cancelling"
         except Exception:
             log.exception("failed to check for a pending cancel", extra=extra)
 
@@ -268,8 +286,11 @@ class JobRunner:
             cancel=cancel,
             publish=lambda ev: self.bus.publish_threadsafe(job.run_id, ev),
         )
+        # Publish what was actually observed above, not a hardcoded 'running': if a cancel already landed, a
+        # subscriber that only tracks the latest event must not be told 'running' after it was already told (or
+        # is about to be told) 'cancelling'.
         self.bus.publish_threadsafe(
-            job.run_id, {"type": "job", "job_id": job.id, "kind": job.kind, "state": "running", "error": None}
+            job.run_id, {"type": "job", "job_id": job.id, "kind": job.kind, "state": observed_state, "error": None}
         )
         log.info("job started: %s", job.kind, extra=extra)
 
