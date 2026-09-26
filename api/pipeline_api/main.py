@@ -16,8 +16,10 @@ from .logs import configure_logging
 from .monitor_bridge import load_bulk_search
 from .routes import health
 from .routes import runs as runs_routes
+from .routes import verify as verify_routes
 from .scrape import scrape_kind
 from .settings import Settings, load_settings
+from .verify import verify_kind
 
 
 def create_app(
@@ -35,7 +37,7 @@ def create_app(
     deps = Deps(settings=settings, bs=bs, search_one=search_one or bs.search_one, pipeline_run=pipeline_run)
 
     bus = EventBus()
-    runner = JobRunner(settings.db_path, bus, {"scrape": scrape_kind(deps)})
+    runner = JobRunner(settings.db_path, bus, {"scrape": scrape_kind(deps), "verify": verify_kind(deps)})
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -52,4 +54,5 @@ def create_app(
     install_error_handlers(app)
     app.include_router(health.router)
     app.include_router(runs_routes.router)
+    app.include_router(verify_routes.router)
     return app
