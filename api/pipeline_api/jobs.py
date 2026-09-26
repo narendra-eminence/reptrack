@@ -166,8 +166,10 @@ class JobRunner:
                 new_state = "cancelling"
             else:
                 return job.state
-        # Publish 'cancelling'/'cancelled' before poking the cancel event: call_soon_threadsafe is FIFO, so any
-        # 'cancelled' event the job publishes once it wakes up is guaranteed to be enqueued after this one.
+        # Publish before poking the cancel event, and via the same publish_threadsafe/call_soon_threadsafe path
+        # that _execute uses for every job-state event: call_soon_threadsafe is FIFO across threads, so as long
+        # as *all* job-state events share this one path, whatever _execute publishes once the job wakes up (or
+        # once it notices this cancel before its first await) is guaranteed to be enqueued after this one.
         self.bus.publish_threadsafe(
             job.run_id, {"type": "job", "job_id": job_id, "kind": job.kind, "state": new_state, "error": None}
         )
@@ -190,7 +192,14 @@ class JobRunner:
                     )
                     continue
                 conn.execute("UPDATE jobs SET state = 'cancelled', finished_at = ? WHERE id = ?", (now(), job.id))
-                kind.on_cancelled(conn, job)
+                try:
+                    kind.on_cancelled(conn, job)
+                except Exception as e:
+                    log.exception("on_cancelled hook raised while resuming job #%s; marking failed instead", job.id)
+                    conn.execute(
+                        "UPDATE jobs SET state = 'failed', error = ? WHERE id = ?",
+                        (f"on_cancelled hook failed: {type(e).__name__}: {e}", job.id),
+                    )
             for row in conn.execute("SELECT id FROM jobs WHERE state = 'running'").fetchall():
                 conn.execute("UPDATE jobs SET state = 'queued', resumed_at = ? WHERE id = ?", (now(), row["id"]))
                 resumed.append(row["id"])
@@ -259,7 +268,7 @@ class JobRunner:
             cancel=cancel,
             publish=lambda ev: self.bus.publish_threadsafe(job.run_id, ev),
         )
-        self.bus.publish(
+        self.bus.publish_threadsafe(
             job.run_id, {"type": "job", "job_id": job.id, "kind": job.kind, "state": "running", "error": None}
         )
         log.info("job started: %s", job.kind, extra=extra)
@@ -281,15 +290,24 @@ class JobRunner:
                 error = f"{type(e).__name__}: {e}"
         self._cancel_events.pop(job.id, None)
 
-        state = self._finalize(job, outcome, error, extra)
+        state, final_error = self._finalize(job, outcome, error, extra)
+        if state is None:
+            # _finalize could not write (or even read back) a terminal state; it already logged why. The row's
+            # actual state is whatever it was before this attempt (most likely still 'running') - there is
+            # nothing reliable to publish or log as "the" outcome here.
+            return
         log.info("job %s: %s", state, job.kind, extra=extra)
-        self.bus.publish(
-            job.run_id, {"type": "job", "job_id": job.id, "kind": job.kind, "state": state, "error": error}
+        self.bus.publish_threadsafe(
+            job.run_id, {"type": "job", "job_id": job.id, "kind": job.kind, "state": state, "error": final_error}
         )
 
-    def _finalize(self, job: JobRecord, outcome: JobOutcome | None, error: str | None, extra: dict[str, Any]) -> str:
+    def _finalize(
+        self, job: JobRecord, outcome: JobOutcome | None, error: str | None, extra: dict[str, Any]
+    ) -> tuple[str | None, str | None]:
         """Write the terminal state and call the kind's hook. Never raises: a hook or DB failure here still
-        leaves the job in a terminal state so the runner can move on to the next one."""
+        leaves the job in a terminal state so the runner can move on to the next one. Returns the (state, error)
+        actually written - or read back - so the caller never logs/publishes something other than what's in the
+        row."""
         try:
             with session(self.db_path) as conn, transaction(conn, immediate=True):
                 current = _get(conn, job.id)
@@ -301,14 +319,14 @@ class JobRunner:
                     )
                     if kind is not None:
                         kind.on_failed(conn, current, error)
-                    return "failed"
+                    return "failed", error
                 if outcome is JobOutcome.CANCELLED:
                     conn.execute("UPDATE jobs SET state = 'cancelled', finished_at = ? WHERE id = ?", (now(), job.id))
                     if kind is not None:
                         kind.on_cancelled(conn, current)
-                    return "cancelled"
+                    return "cancelled", None
                 conn.execute("UPDATE jobs SET state = 'done', finished_at = ? WHERE id = ?", (now(), job.id))
-                return "done"
+                return "done", None
         except Exception as e:
             log.exception("failed to finalize job #%s (kind=%s)", job.id, job.kind, extra=extra)
             fallback_error = f"finalize failed: {type(e).__name__}: {e}"
@@ -318,6 +336,15 @@ class JobRunner:
                         "UPDATE jobs SET state = 'failed', error = ?, finished_at = ? WHERE id = ?",
                         (fallback_error, now(), job.id),
                     )
+                return "failed", fallback_error
             except Exception:
                 log.exception("failed to mark job #%s failed after a finalize error", job.id, extra=extra)
-            return "failed"
+                # Read back whatever the row actually holds instead of claiming 'failed' when it isn't.
+                try:
+                    with session(self.db_path) as conn:
+                        row = conn.execute("SELECT state, error FROM jobs WHERE id = ?", (job.id,)).fetchone()
+                    if row is not None:
+                        return row["state"], row["error"]
+                except Exception:
+                    log.exception("failed to read back job #%s state after a finalize error", job.id, extra=extra)
+                return None, None
