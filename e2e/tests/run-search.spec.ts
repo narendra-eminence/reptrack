@@ -31,11 +31,18 @@ test("search runs live, lists results, exports, retries and deletes", async ({ p
   expect(download.suggestedFilename()).toMatch(/_serp\.xlsx$/);
   await shot(page, "run-search", info);
 
+  const priorScrapeJobId = await progress.getAttribute("data-scrape-job-id");
   await page.getByRole("button", { name: "Retry failed queries" }).click();
+  // retry-failed creates a new scrape job; wait for that transition instead of re-asserting text that was
+  // already true before the click, which would pass immediately and race the still-in-flight retry job.
+  await expect(progress).not.toHaveAttribute("data-scrape-job-id", priorScrapeJobId ?? "");
+  await expect(progress).toHaveAttribute("data-active", "false");
   await expect(progress).toContainText("Search finished");
   await expect(page.getByTestId("query-row-2")).toContainText("Failed");
 
-  await page.getByRole("button", { name: "Delete run" }).click();
+  const deleteButton = page.getByRole("button", { name: "Delete run" });
+  await expect(deleteButton).toBeEnabled();
+  await deleteButton.click();
   await page.getByRole("alertdialog").getByRole("button", { name: "Delete" }).click();
   await expect(page).toHaveURL("http://localhost:3100/");
   await expect(page.getByRole("link", { name: first })).toHaveCount(0);
