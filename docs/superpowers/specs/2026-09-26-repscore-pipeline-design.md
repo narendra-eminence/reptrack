@@ -1,6 +1,6 @@
 # RepScore Pipeline - Design (v1, simple workflow)
 
-Status: approved in brainstorming, pending written-spec review
+Status: approved with review changes (brand snapshot, verify_rows, non-blocking verify, cost wording, duplicate-start guard)
 Date: 26 September 2026
 Owner: Narendra
 
@@ -39,14 +39,14 @@ This deliberately narrows `~/Downloads/files 2/design.md` and `plan.md`. Brand p
 
 **url-verification** (`~/Desktop/niks/url-verification`)
 
-- `urlverify.pipeline.run(input_path, output_path, cfg, brand, cache_dir, ...)` unchanged in behavior. Output xlsx is exactly what the CLI writes today (same columns, duplicate shading, `Duplicate Of Row`).
-- `urlverify.config.load_config`, `resolve_brand`.
+- `urlverify.pipeline.run(input_path, output_path, cfg, brand, cache_dir, ...)` unchanged in behavior for the CLI. Output xlsx is exactly what the CLI writes today (same columns, duplicate shading, `Duplicate Of Row`).
+- `urlverify.config.load_config`, `BrandRule`.
 - Its `config.yaml` (brand sets, fetch settings) and `cache/` directory, so the CLI and the app share brand sets and fetched pages.
 - Playwright Chromium as already installed for the verifier.
 
 ## 4. Changes to the existing repos
 
-Each change is small, keeps existing behavior, and lands with tests in its own repo. Both existing test suites must pass afterwards.
+Each change is small, keeps existing behavior, and lands with tests in its own repo. Both existing test suites must pass afterwards. These are the only changes: the monitor and the verifier are not extracted, restructured or refactored beyond what is listed here.
 
 **Company Monitor: `bulk_search.search_one`**
 
@@ -60,9 +60,12 @@ def search_one(query, start, end, pages, vertical, provider=DEFAULT_PROVIDER,
 
 A public wrapper over `_run_one_query`. `run()` is unchanged. This is needed because `run()` writes to the single global store (`.runs/bulk_search.json`) and its events carry counts, not rows, so the app cannot keep per-run rows through it. `export_rows` is reused to flatten rows into `EXPORT_COLUMNS`.
 
-**url-verification: progress callback with status**
+**url-verification: `pipeline.run` keywords `rules` and `on_result`**
 
-`pipeline.run` already takes `progress: Callable[[], None]`. Add a separate keyword `on_result: Callable[[str], None] | None = None`, called with the finished record's status after each unique URL. `progress` is unchanged, so the CLI keeps working. The app uses `on_result` for live per-status counts.
+Two new optional keywords on `pipeline.run`; existing callers, including the CLI, are unaffected.
+
+- `rules: list[BrandRule] | None = None`. Today `run` calls `resolve_brand(cfg, brand)`, which looks the set up by name and silently generates literal rules for an unknown name. When `rules` is given, `run` uses exactly those rules and does not call `resolve_brand` at all; `brand` is then only a label. This is what lets the app guarantee an immutable brand snapshot (section 6.1).
+- `on_result: Callable[[str], None] | None = None`, called with the finished record's status after each unique URL. `progress` is unchanged. The app uses `on_result` for live per-status counts.
 
 **url-verification: `urlverify/brands.py`**
 
@@ -81,7 +84,7 @@ Next.js (web/, App Router)  --- REST + SSE --->  FastAPI (api/, localhost:8000)
                                                    |-- SQLite (data/app.db, WAL)
                                                    |-- Job runner (asyncio, one job at a time)
                                                    |     |-- scrape: bulk_search.search_one on a thread pool
-                                                   |     |-- verify: urlverify.pipeline.run
+                                                   |     |-- verify: urlverify.pipeline.run in the verifier thread
                                                    |-- data/exports/ (SERP and verified xlsx)
 ```
 
@@ -137,7 +140,7 @@ CREATE TABLE runs (
   start_date TEXT,                 -- ISO, inclusive
   end_date TEXT,
   status TEXT NOT NULL,            -- draft | scraping | scraped | verifying | verified | failed
-  max_calls INTEGER,               -- ceiling quoted and confirmed
+  max_calls INTEGER,               -- billable SERP page ceiling quoted by bulk_search.plan and confirmed
   error TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -169,7 +172,7 @@ CREATE TABLE verify_jobs (
   id INTEGER PRIMARY KEY,
   run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
   brand_set TEXT NOT NULL,
-  brand_rules_json TEXT NOT NULL,  -- snapshot of the set's rules when the job started
+  brand_rules_json TEXT NOT NULL,  -- immutable deep copy of the set's rules taken at start; the job's only brand source
   status TEXT NOT NULL,            -- queued | running | done | failed | cancelled
   total_urls INTEGER,
   done_urls INTEGER NOT NULL DEFAULT 0,
@@ -179,6 +182,17 @@ CREATE TABLE verify_jobs (
   started_at TEXT,
   finished_at TEXT
 );
+
+CREATE TABLE verify_rows (
+  id INTEGER PRIMARY KEY,
+  verify_job_id INTEGER NOT NULL REFERENCES verify_jobs(id) ON DELETE CASCADE,
+  seq INTEGER NOT NULL,            -- row order in the verified sheet (0-based, header excluded)
+  status TEXT,                     -- copy of the Status column, for filtering
+  is_duplicate INTEGER NOT NULL DEFAULT 0,
+  row_json TEXT NOT NULL,          -- every column of the verified sheet for this row
+  UNIQUE (verify_job_id, seq)
+);
+CREATE INDEX verify_rows_job_status ON verify_rows(verify_job_id, status, seq);
 
 CREATE TABLE jobs (
   id INTEGER PRIMARY KEY,
@@ -191,6 +205,9 @@ CREATE TABLE jobs (
   started_at TEXT,
   finished_at TEXT
 );
+-- At most one active job per run: a second scrape or verify start cannot be created while one is queued or running.
+CREATE UNIQUE INDEX jobs_one_active_per_run ON jobs(run_id)
+  WHERE state IN ('queued', 'running', 'cancelling');
 ```
 
 A query and its rows are written in one transaction when the query finishes, so a query is either fully stored with `state = done` or still `pending`.
@@ -201,15 +218,15 @@ A query and its rows are written in one transaction when the query finishes, so 
 |---|---|---|
 | GET | `/api/health` | Paths found, keys present per provider, Chromium available |
 | GET | `/api/options` | Providers, verticals, page ceilings per provider |
-| POST | `/api/plan` | Body: queries text, provider, vertical, pages, dates. Returns parsed query count, max_calls, cached calls, key status. Wraps `bulk_search.plan`. |
+| POST | `/api/plan` | Body: queries text, provider, vertical, pages, dates. Returns parsed query count, pages per query, `max_calls` (billable SERP pages, upper bound), `cached_calls`, key status. Wraps `bulk_search.plan`. No money estimate. |
 | GET | `/api/runs` | Run list with counts |
 | POST | `/api/runs` | Create run and start scrape. Requires `confirmed_calls == max_calls`, mirroring the monitor's spend guard. |
 | GET | `/api/runs/{id}` | Run detail, queries, verify jobs |
 | GET | `/api/runs/{id}/rows` | SERP rows, paginated, with text search |
 | GET | `/api/runs/{id}/serp.xlsx` | SERP export |
-| POST | `/api/runs/{id}/retry-failed` | Re-queue failed queries |
-| POST | `/api/runs/{id}/verify` | Body: brand_set. Starts verification. |
-| GET | `/api/runs/{id}/verify/{job}/results` | Verified rows (URL, Status, Hit Sentence, Brands Found), paginated |
+| POST | `/api/runs/{id}/retry-failed` | Re-queue failed queries. 409 if the run has an active job. |
+| POST | `/api/runs/{id}/verify` | Body: brand_set. Starts verification. 409 if the run has an active job or is not `scraped`/`verified`. |
+| GET | `/api/runs/{id}/verify/{job}/results` | Rows from `verify_rows`, paginated, filterable by status and duplicate flag, with text search. Returns Link, Status, Hit Sentence, Brands Found for the table and the full row on request. |
 | GET | `/api/runs/{id}/verify/{job}/verified.xlsx` | Verified export |
 | POST | `/api/jobs/{id}/cancel` | Cancel |
 | DELETE | `/api/runs/{id}` | Delete run, its rows and export files |
@@ -219,6 +236,8 @@ A query and its rows are written in one transaction when the query finishes, so 
 | DELETE | `/api/brands/{name}` | Delete a set |
 | POST | `/api/brands/test` | Body: rules or set name, sample text. Returns matches and exclusions. |
 
+Start endpoints (`POST /api/runs`, `/retry-failed`, `/verify`) check for an active job in the same transaction that inserts the new `jobs` row; the partial unique index `jobs_one_active_per_run` backs this up. A rejected start returns 409 with the active job's id and kind, and the UI shows it instead of starting a second job. Double-clicks are also disabled in the UI, but the backend is the guarantee.
+
 Next.js calls the API through a rewrite (`/api/*` -> `http://127.0.0.1:8000/api/*`) so the browser talks to one origin.
 
 ## 6. Jobs
@@ -227,17 +246,23 @@ Next.js calls the API through a rewrite (`/api/*` -> `http://127.0.0.1:8000/api/
 
 - Started in FastAPI's lifespan. One job runs at a time; others wait in `queued`. This keeps two jobs from competing for provider quota or Chromium.
 - **Scrape job:** loads the run's `pending` queries, submits them to a thread pool of `bulk_search.MAX_WORKERS` (already bounded by `net.MAX_IN_FLIGHT["serpapi.com"]`), and calls `search_one` for each. As each query completes, its rows and `state` are committed in one transaction and an event is published. When all queries are `done` or `failed`, the run moves to `scraped`.
-- **Verify job:** writes the run's SERP rows to a temporary xlsx in `EXPORT_COLUMNS` order (the verifier's input format today), resolves the brand set from `config.yaml` and snapshots its rules into `verify_jobs.brand_rules_json`, then awaits `urlverify.pipeline.run` with the shared cache dir and the `on_result` callback. Output goes to `data/exports/<run>/<name>_verified.xlsx`. Status counts come from `pipeline.run`'s return value; the run moves to `verified`.
+- **Verify job:**
+  1. **Brand snapshot.** In the start request, the selected set is resolved from a fresh `load_config` of `config.yaml`, deep-copied, and serialized into `verify_jobs.brand_rules_json` in the same transaction that creates the job. An unknown set name is rejected (the verifier's literal-name fallback is never used by the app). From then on `brand_rules_json` is the only source of brand rules for this job: the job rebuilds `BrandRule` objects from it and passes them as `pipeline.run(..., rules=...)`, so `resolve_brand` is never called and the set is never looked up by name again. Editing or deleting the set in the brand editor while the job runs, or before a resumed job restarts, has no effect on it. The same snapshot is shown on the run page and recorded in the run's history.
+  2. **Input.** Writes the run's SERP rows to a temporary xlsx in `EXPORT_COLUMNS` order (the verifier's input format today).
+  3. **Execution off the event loop.** `pipeline.run` is async but does synchronous CPU work inside (trafilatura and lxml extraction, xlsx writing), so it never runs on FastAPI's event loop. Each verify job runs in a dedicated worker thread that owns its own event loop (`asyncio.run` inside the thread). The thread reports progress to the API loop through `loop.call_soon_threadsafe`, which the `on_result` callback uses to publish events and batch-update `done_urls` and `status_counts_json`.
+  4. **Output.** `pipeline.run` writes `data/exports/<run>/<name>_verified.xlsx`. The job then reads that file once and inserts every row into `verify_rows` in a single transaction (all columns into `row_json`, plus `status` and `is_duplicate`), and only then marks the job `done` and the run `verified`. The table and the downloaded file therefore always agree, and a job is never `done` without its rows.
 - **Events:** an in-memory broadcaster per run. The SSE endpoint first sends a snapshot built from the database (run status, query states, verify progress), then streams live events. A reconnecting page therefore always shows correct state.
-- **Cancel:** sets `cancelling`. Scrape: stops submitting queries, sets the `stop` event so queries in retry backoff stop, lets in-flight calls finish and stores them (they are paid for). Verify: cancels the pipeline task; the URL cache keeps what was fetched.
+- **Cancel is cooperative.** It sets the job to `cancelling`; nothing is killed.
+  - Scrape: the runner stops submitting queries and sets the `stop` event that `search_one` passes to the monitor's retry loop, so queries waiting in retry backoff give up. Queries already in flight finish and are stored, because they are paid for. The job then becomes `cancelled`, leaving unfinished queries `pending`.
+  - Verify: the API loop asks the verifier thread's loop to cancel the pipeline task (`call_soon_threadsafe(task.cancel)`). Cancellation takes effect at the next `await` inside the pipeline (a fetch, a throttle wait, a browser call). A synchronous step already running, such as extracting one page, completes first, so cancel can take a few seconds. `pipeline.run`'s `finally` closes the browser. No output file or `verify_rows` are written for a cancelled job; every page fetched so far is already in the URL cache, so starting again costs little. The job becomes `cancelled` when the thread exits.
 
 ### 6.2 Resume after crash
 
 On startup:
 
 - Any `jobs` row in `running` or `cancelling` goes back to `queued` (cancelling ones are marked `cancelled`).
-- A scrape job re-runs only the run's `pending` queries. Completed provider calls come from the 30-day cache in `CompanyMonitor/.cache` at no cost, for both SerpAPI and DataForSEO. Only a call that was in flight at the moment of the crash can be billed twice.
-- A verify job re-runs `pipeline.run`. Its URL cache skips every URL already fetched successfully, so the restart costs only extraction and matching time.
+- A scrape job re-runs only the run's `pending` queries. Provider requests that completed and were written to the 30-day cache in `CompanyMonitor/.cache` are served from it after restart without a new request, for both SerpAPI and DataForSEO. A request that was in flight at the crash, or whose response was received but not yet written to the cache, is sent again and may be charged again. With the monitor's default of 8 concurrent queries, that exposure is at most the requests in flight at that moment.
+- A verify job restarts `pipeline.run` from the start with the same `brand_rules_json` snapshot. Its URL cache skips every URL already fetched successfully, so the restart costs mainly extraction and matching time. Any partial `verify_rows` cannot exist, because rows are written only after a completed run.
 - The run page shows "Resumed after restart" with the time.
 
 ### 6.3 Errors
@@ -264,14 +289,19 @@ Stepper with three steps: Search, Verify, Done. Completed steps stay visible, co
 1. **Search**
    - Queries textarea (one per line, boolean allowed), live parsed count.
    - Options: engine, vertical, start and end date, pages per query (clamped to the engine's ceiling; news is fixed at one call).
-   - Cost preview from `/api/plan`, debounced: max calls, already cached, key status.
-   - **Run search** opens a confirm dialog with the ceiling. Confirming creates the run and starts the job.
+   - Request preview from `/api/plan`, debounced. Shown as counts, never as money, because `bulk_search.plan` computes no price:
+     - **Maximum billable SERP pages: N** (upper bound; a query stops early when results run out)
+     - **Already cached (free): M**
+     - key status per provider
+     For DataForSEO the help text notes that one request covers all of a query's pages but billing is per page.
+   - **Run search** opens a confirm dialog with the same maximum. Confirming creates the run and starts the job.
    - Live: progress bar (queries done / total), elapsed, rows so far, a per-query table (query, found, out of range, attempts, error) updating in place.
    - After: results table (Query, Rank, Date, Domain, Title, Snippet, Link) with text search and pagination; **Download SERP xlsx**; **Retry failed queries** when relevant.
 2. **Verify**
    - Brand set dropdown (required). The selected set's rules are listed next to it (name, pattern, context words, exclusions) so the brand is visible before starting. **Edit brands** link.
+   - Once started, the job shows the snapshot it is using (set name and rules from `brand_rules_json`), not the live set, and says so if the live set has since changed.
    - **Start verification**. Live: unique URLs done / total, a running count per status (Verified, Title only, Weak mention, Boilerplate only, Brand not found, Page unreachable, Unsupported platform), elapsed.
-   - After: status chips, results table (Link, Status, Hit Sentence, Brands Found) with a status filter, **Download verified xlsx**. Can re-verify with a different brand set; each verify job is kept and listed.
+   - After: status chips, results table from `verify_rows` (Link, Status, Hit Sentence, Brands Found) with a status filter, a hide-duplicates toggle, text search and server-side pagination, **Download verified xlsx**. Can re-verify with a different brand set; each verify job is kept and listed.
 3. **Done**
    - Summary counts and both downloads.
 
@@ -296,7 +326,15 @@ Stepper with three steps: Search, Verify, Done. Completed steps stay visible, co
 ## 9. Testing
 
 - **API unit tests (pytest):** plan wrapper; run creation spend guard; scrape job with `search_one` stubbed from recorded responses (success, zero results, failure after retries); query-and-rows transaction; SSE snapshot content; cancel; verify job with `pipeline.run` against the local HTTP server fixture style the verifier already uses; export column order equals `bulk_search.EXPORT_COLUMNS`.
-- **Resume test:** start a scrape against a stub that blocks mid-run, kill the runner, restart, confirm no query is executed twice and the final row count equals an uninterrupted run. Same for verify: restart re-uses cached URLs (zero fetches for already-fetched URLs).
+- **Resume tests:**
+  - Query level: start a scrape against a stub that blocks mid-run, kill the runner, restart, confirm no `done` query is executed again and the final row count equals an uninterrupted run.
+  - Cache and retry boundary, with the monitor's HTTP transport stubbed and request counts recorded: (a) a request whose response was written to `CompanyMonitor/.cache` before the crash is served from cache after restart with zero transport calls; (b) a request whose response was received but whose cache write did not happen (crash injected between the two) is sent again after restart, exactly once. Both cases run for SerpAPI and DataForSEO.
+  - Verify: restart after a crash mid-verify re-uses cached URLs (zero fetches for already-fetched URLs), uses the stored `brand_rules_json` even if `config.yaml` changed in between, and writes `verify_rows` only once, after completion.
+- **Brand snapshot test:** start a verify job, then edit and delete the set in `config.yaml` while it runs; the result must equal a run with the original rules, and `resolve_brand` must not be called (asserted with a spy).
+- **Duplicate start tests:** a second `POST /verify` or `/retry-failed` while a job is active returns 409 and creates no row; concurrent starts from two threads create exactly one job.
+- **Event loop test:** while a verify job is extracting (a stub that blocks the verifier thread with CPU work), `/api/health` still responds within 200 ms.
+- **Cancel tests:** cancelling a scrape leaves unfinished queries `pending` and stores in-flight results; cancelling a verify leaves no output file and no `verify_rows`, and the job ends `cancelled`.
+- **`pipeline.run` keyword tests (url-verification repo):** with `rules=` given, `resolve_brand` is not called and matching uses exactly those rules; `on_result` is called once per unique URL with its status; CLI output is byte-for-byte identical to before on a fixture input.
 - **Brand editor tests (url-verification repo):** save preserves comments and order in a copy of `config.yaml`; invalid regex rejected with rule and field named; `test_match` agrees with a real pipeline match on the same text.
 - **`search_one` tests (Company Monitor repo):** same rows as `run()` for the same query using recorded responses; does not touch the store.
 - **E2E (Playwright):** against the real Next.js UI and FastAPI with the provider boundary stubbed and verification pointed at a local HTTP server: new run, paste queries, confirm, watch progress, results table visible, SERP download opens, pick brand set, verify, status chips visible, verified download opens, run appears in the list. Assertions on rendered visibility, plus screenshots at each step at 1280px and 1920px.
@@ -312,6 +350,7 @@ Stepper with three steps: Search, Verify, Done. Completed steps stay visible, co
 | uvicorn `--reload` restarts during development interrupt jobs | Resume makes this a short catch-up; production-style start (`make start`) runs without reload. |
 | Brand editor corrupts `config.yaml` | Round-trip YAML, validation before write, atomic replace, and a timestamped backup `config.yaml.bak-<ts>` before each save. |
 | Large runs (tens of thousands of rows) slow the results table | Server-side pagination and search; rows stored per run with an index. |
+| Synchronous work inside `pipeline.run` blocks the API | Verify runs in its own thread with its own event loop (section 6.1); covered by the event loop test. |
 | Verifier Chromium not installed | `/api/health` reports it and the Verify step shows the install command. |
 
 ## 11. Out of scope for v1
