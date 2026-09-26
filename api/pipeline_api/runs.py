@@ -244,6 +244,14 @@ def run_detail(conn: sqlite3.Connection, run_id: str) -> dict[str, Any]:
     }
 
 
+def after_stop_status(conn: sqlite3.Connection, run_id: str) -> str:
+    """The status a run should have after a scrape or verify job stops (finishes or is cancelled): "verified" if
+    any verification has ever completed for this run, else "scraped" - so a later scrape stopping never downgrades
+    a run that already has verified results."""
+    done = conn.execute("SELECT 1 FROM verify_jobs WHERE run_id = ? AND status = 'done' LIMIT 1", (run_id,)).fetchone()
+    return "verified" if done else "scraped"
+
+
 def list_runs(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     rows = conn.execute("""
         SELECT r.id, r.name, r.provider, r.vertical, r.start_date, r.end_date, r.status, r.updated_at,

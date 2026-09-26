@@ -295,11 +295,6 @@ async def run_verify(ctx: JobContext, deps: Deps) -> JobOutcome:
     return JobOutcome.DONE
 
 
-def _after_stop_status(conn: sqlite3.Connection, run_id: str) -> str:
-    done = conn.execute("SELECT 1 FROM verify_jobs WHERE run_id = ? AND status = 'done' LIMIT 1", (run_id,)).fetchone()
-    return "verified" if done else "scraped"
-
-
 def verify_kind(deps: Deps) -> JobKind:
     async def run(ctx: JobContext) -> JobOutcome:
         return await run_verify(ctx, deps)
@@ -318,6 +313,6 @@ def verify_kind(deps: Deps) -> JobKind:
 
     def on_cancelled(conn: sqlite3.Connection, job: JobRecord) -> None:
         conn.execute("UPDATE verify_jobs SET status = 'cancelled', finished_at = ? WHERE id = ?", (now(), job.ref_id))
-        runs.set_run_status(conn, job.run_id, _after_stop_status(conn, job.run_id))
+        runs.set_run_status(conn, job.run_id, runs.after_stop_status(conn, job.run_id))
 
     return JobKind(run=run, on_failed=on_failed, on_cancelled=on_cancelled)

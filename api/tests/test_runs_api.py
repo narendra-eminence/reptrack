@@ -198,6 +198,45 @@ def test_cancel_scrape_keeps_unfinished_queries_pending(settings, keys):
         assert detail["counts"]["done"] + detail["counts"]["pending"] == 30
 
 
+def test_retry_after_verify_done_keeps_status_verified(settings, keys):
+    """Controller ruling (finding 10): a scrape finishing or being cancelled must not downgrade a run's status
+    from 'verified' back to 'scraped' when a verification has already completed for it."""
+    from test_verify import fake_pipeline
+
+    fake = FakeSearch()
+    with make_client(settings, search_one=fake, pipeline_run=fake_pipeline("ok")) as c:
+        body = {**SEARCH_BODY, "queries": "alpha\nfail: nope", "confirmed_calls": 2}
+        run_id = c.post("/api/runs", json=body).json()["id"]
+        wait_until(lambda: c.get(f"/api/runs/{run_id}").json()["status"] == "scraped")
+        assert c.post(f"/api/runs/{run_id}/verify", json={"brand_set": "acme"}).status_code == 200
+        wait_until(lambda: c.get(f"/api/runs/{run_id}").json()["status"] == "verified")
+
+        fake.calls.clear()
+        assert c.post(f"/api/runs/{run_id}/retry-failed").status_code == 200
+        wait_until(lambda: c.get(f"/api/runs/{run_id}").json()["last_scrape_job"]["state"] == "done")
+        assert c.get(f"/api/runs/{run_id}").json()["status"] == "verified"
+
+
+def test_cancel_scrape_after_verify_done_keeps_status_verified(settings, keys):
+    from test_verify import fake_pipeline
+
+    fake = FakeSearch()
+    with make_client(settings, search_one=fake, pipeline_run=fake_pipeline("ok")) as c:
+        body = {**SEARCH_BODY, "queries": "alpha\nfail: nope", "confirmed_calls": 2}
+        run_id = c.post("/api/runs", json=body).json()["id"]
+        wait_until(lambda: c.get(f"/api/runs/{run_id}").json()["status"] == "scraped")
+        assert c.post(f"/api/runs/{run_id}/verify", json={"brand_set": "acme"}).status_code == 200
+        wait_until(lambda: c.get(f"/api/runs/{run_id}").json()["status"] == "verified")
+
+        fake.gate.clear()
+        fake.block_after = 0
+        job_id = c.post(f"/api/runs/{run_id}/retry-failed").json()["job_id"]
+        assert c.post(f"/api/jobs/{job_id}/cancel").json()["state"] in ("cancelling", "cancelled")
+        fake.gate.set()
+        wait_until(lambda: c.get(f"/api/runs/{run_id}").json()["active_job"] is None)
+        assert c.get(f"/api/runs/{run_id}").json()["status"] == "verified"
+
+
 def test_last_scrape_job_survives_a_later_verify_job(settings, keys):
     from test_verify import fake_pipeline
 

@@ -65,7 +65,7 @@ async def run_scrape(ctx: JobContext, deps: Deps) -> JobOutcome:
     if ctx.cancel.is_set():
         return JobOutcome.CANCELLED
     with session(ctx.db_path) as conn:
-        runs.set_run_status(conn, run_id, "scraped")
+        runs.set_run_status(conn, run_id, runs.after_stop_status(conn, run_id))
     return JobOutcome.DONE
 
 
@@ -77,6 +77,6 @@ def scrape_kind(deps: Deps) -> JobKind:
         runs.set_run_status(conn, job.run_id, "failed", f"Search failed: {message}. Use Retry to continue.")
 
     def on_cancelled(conn: sqlite3.Connection, job: JobRecord) -> None:
-        runs.set_run_status(conn, job.run_id, "scraped")
+        runs.set_run_status(conn, job.run_id, runs.after_stop_status(conn, job.run_id))
 
     return JobKind(run=run, on_failed=on_failed, on_cancelled=on_cancelled)
