@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
+from .db import migrate
 from .deps import Deps, PipelineRunFn, SearchFn
 from .errors import install_error_handlers
 from .logs import configure_logging
@@ -20,6 +21,7 @@ def create_app(
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     settings.exports_dir.mkdir(parents=True, exist_ok=True)
     configure_logging(settings.logs_dir)
+    migrate(settings.db_path)
     bs = load_bulk_search(settings.company_monitor_dir)
     if pipeline_run is None:
         from urlverify.pipeline import run as pipeline_run
