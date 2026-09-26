@@ -1,0 +1,17 @@
+{
+  "delay_seconds": 0.3,
+  "queries": {
+    "mokobara luggage": [
+      {"title": "Mokobara expands its luggage range", "link": "http://127.0.0.1:8200/article-1", "snippet": "Mokobara launched a new cabin trolley", "date": "May 2, 2026"},
+      {"title": "Monsoon travel tips", "link": "http://127.0.0.1:8200/article-2", "snippet": "Travel gear makers reported steady demand", "date": ""},
+      {"title": "Removed page", "link": "http://127.0.0.1:8200/gone", "snippet": "", "date": ""}
+    ],
+    "mokobara review": [
+      {"title": "Mokobara expands its luggage range", "link": "http://127.0.0.1:8200/article-1?utm_source=feed", "snippet": "Mokobara launched", "date": ""},
+      {"title": "Best cabin bags of the year", "link": "http://127.0.0.1:8200/article-3", "snippet": "Among the picks, Mokobara stood out", "date": ""}
+    ]
+  },
+  "default": [
+    {"title": "Default result", "link": "http://127.0.0.1:8200/article-2", "snippet": "", "date": ""}
+  ]
+}

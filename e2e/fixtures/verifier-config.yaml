@@ -1,0 +1,38 @@
+# Test verifier config.
+fetch:
+  global_concurrency: 4
+  per_domain_concurrency: 2
+  per_domain_gap_seconds: 0
+  http_timeout_seconds: 5
+  browser_timeout_seconds: 10
+  browser_concurrency: 1
+  retries: 0
+  min_main_text_chars: 200
+  user_agent: "Mozilla/5.0 test"
+match:
+  context_words: 15
+  snippet_found_threshold: 80
+report:
+  opening_words: 60
+verdict:
+  min_paragraphs: 2
+  min_paragraph_share: 0.25
+  max_context_paragraphs: 5
+  max_context_chars: 4000
+tracking_params: [fbclid, gclid]
+brands:
+  # Acme is a coined test brand.
+  acme:
+    - name: Acme
+      pattern: 'Acme|[#@]acme\w*'
+  other:
+    - name: Other Brand
+      pattern: 'Other Brand'
+  mokobara:
+    - name: Mokobara
+      pattern: 'Mokobara|MOKOBARA|[#@]mokobara\w*'
+categories:
+  news: [news.example]
+platform_domains:
+  reddit: [reddit.com]
+unsupported_platforms: [reddit]
