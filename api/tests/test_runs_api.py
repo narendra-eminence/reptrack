@@ -198,6 +198,24 @@ def test_cancel_scrape_keeps_unfinished_queries_pending(settings, keys):
         assert detail["counts"]["done"] + detail["counts"]["pending"] == 30
 
 
+def test_last_scrape_job_survives_a_later_verify_job(settings, keys):
+    from test_verify import fake_pipeline
+
+    with make_client(settings, search_one=FakeSearch(), pipeline_run=fake_pipeline("ok")) as c:
+        run_id = c.post("/api/runs", json={**SEARCH_BODY, "confirmed_calls": 2}).json()["id"]
+        detail = wait_until(lambda: (d := c.get(f"/api/runs/{run_id}").json())["status"] == "scraped" and d)
+        assert detail["last_job"]["kind"] == "scrape"
+        assert detail["last_scrape_job"]["kind"] == "scrape" and detail["last_scrape_job"]["state"] == "done"
+        scrape_job_id = detail["last_scrape_job"]["id"]
+
+        assert c.post(f"/api/runs/{run_id}/verify", json={"brand_set": "acme"}).status_code == 200
+        detail = wait_until(lambda: (d := c.get(f"/api/runs/{run_id}").json())["status"] == "verified" and d)
+        assert detail["last_job"]["kind"] == "verify"
+        # the scrape job is still the one and only scrape job for this run, unchanged by the later verify job
+        assert detail["last_scrape_job"]["id"] == scrape_job_id
+        assert detail["last_scrape_job"]["kind"] == "scrape" and detail["last_scrape_job"]["state"] == "done"
+
+
 def test_delete_run_removes_rows_and_files(settings, keys):
     with make_client(settings, search_one=FakeSearch()) as c:
         run_id = c.post("/api/runs", json={**SEARCH_BODY, "confirmed_calls": 2}).json()["id"]

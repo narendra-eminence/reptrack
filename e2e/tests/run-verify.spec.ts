@@ -17,6 +17,7 @@ test("verifies results with a chosen brand set and exports", async ({ page }, in
   await expect(page.getByTestId("snapshot-note")).toContainText('Brand set "mokobara"');
   await expect(page.getByTestId("chip-Verified")).toContainText("1");
   await expect(page.getByTestId("chip-Page unreachable")).toContainText("1");
+  await expect(page.getByTestId("chip-Weak mention")).toContainText("1"); // article-3: 1 of 5 non-lead paragraphs
 
   await expect(page.getByTestId("verify-total")).toHaveText("5");
   await page.getByTestId("chip-Verified").click();

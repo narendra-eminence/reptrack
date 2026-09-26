@@ -9,6 +9,7 @@ import { NativeSelect } from "@/components/NativeSelect";
 import { StatusChips } from "@/components/StatusChips";
 import { VerifyResultsTable } from "@/components/VerifyResultsTable";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { api, errorMessage } from "@/lib/api";
 import { fmt, fmtDateTime } from "@/lib/format";
@@ -68,7 +69,8 @@ export function VerifyStep({ run, refetch }: { run: RunDetail; refetch: () => Pr
           <Button disabled={!selected || !!run.active_job || starting} onClick={start}>Start verification</Button>
           {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
         </div>
-        <div>
+        <div className="space-y-1.5">
+          <Label>Rules that will be matched</Label>
           {selectedSet ? (
             <BrandRules rules={selectedSet.rules} />
           ) : (
@@ -119,14 +121,16 @@ function VerifyJobPanel({ run, job, liveSets, refetch }: { run: RunDetail; job: 
       </div>
       <StatusChips counts={job.status_counts} selected={job.status === "done" ? status : undefined} onSelect={job.status === "done" ? setStatus : undefined} />
       {job.status === "done" && (
-        <>
-          <div className="flex justify-end">
+        <VerifyResultsTable
+          runId={run.id}
+          verifyJobId={job.id}
+          status={status}
+          actions={
             <a href={`/api/runs/${run.id}/verify/${job.id}/verified.xlsx`} download className={cn(buttonVariants({ variant: "outline" }))}>
               Download verified xlsx
             </a>
-          </div>
-          <VerifyResultsTable runId={run.id} verifyJobId={job.id} status={status} />
-        </>
+          }
+        />
       )}
     </div>
   );

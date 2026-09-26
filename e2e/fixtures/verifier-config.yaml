@@ -16,7 +16,7 @@ report:
   opening_words: 60
 verdict:
   min_paragraphs: 2
-  min_paragraph_share: 0.4
+  min_paragraph_share: 0.25
   max_context_paragraphs: 5
   max_context_chars: 4000
 tracking_params: [fbclid, gclid]

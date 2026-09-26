@@ -86,6 +86,13 @@ def latest_job(conn: sqlite3.Connection, run_id: str) -> JobRecord | None:
     return JobRecord.from_row(row) if row else None
 
 
+def latest_job_of_kind(conn: sqlite3.Connection, run_id: str, kind: str) -> JobRecord | None:
+    row = conn.execute(
+        "SELECT * FROM jobs WHERE run_id = ? AND kind = ? ORDER BY id DESC LIMIT 1", (run_id, kind)
+    ).fetchone()
+    return JobRecord.from_row(row) if row else None
+
+
 def _get(conn: sqlite3.Connection, job_id: int) -> JobRecord:
     row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
     if row is None:

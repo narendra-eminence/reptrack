@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Clip } from "@/components/Clip";
 import { Pager } from "@/components/Pager";
 import { Input } from "@/components/ui/input";
@@ -11,13 +11,32 @@ import type { Page, VerifyRow } from "@/lib/types";
 const LIMIT = 50;
 const text = (v: unknown) => (v === null || v === undefined ? "" : String(v));
 
-export function VerifyResultsTable({ runId, verifyJobId, status }: { runId: string; verifyJobId: number; status: string }) {
+export function VerifyResultsTable({
+  runId,
+  verifyJobId,
+  status,
+  actions,
+}: {
+  runId: string;
+  verifyJobId: number;
+  status: string;
+  actions?: ReactNode;
+}) {
   const [hideDuplicates, setHideDuplicates] = useState(false);
   const [input, setInput] = useState("");
   const [query, setQuery] = useState("");
   const [offset, setOffset] = useState(0);
   const [page, setPage] = useState<Page<VerifyRow> | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // A different verify job or status filter is a different result set; page 2 of the old one would otherwise
+  // show "No rows match" instead of the new set's first page. Reset during render (React's recommended pattern
+  // for adjusting state when a prop changes), not in an effect, so there is no extra commit with stale rows.
+  const [prevKey, setPrevKey] = useState({ verifyJobId, status });
+  if (prevKey.verifyJobId !== verifyJobId || prevKey.status !== status) {
+    setPrevKey({ verifyJobId, status });
+    setOffset(0);
+  }
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -50,6 +69,7 @@ export function VerifyResultsTable({ runId, verifyJobId, status }: { runId: stri
           Verified rows <span data-testid="verify-total" className="tabular-nums text-neutral-500">{page ? fmt(page.total) : ""}</span>
         </h3>
         <div className="flex items-center gap-4">
+          {actions}
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"

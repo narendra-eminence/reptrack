@@ -78,6 +78,7 @@ export interface RunDetail {
   verify_jobs: VerifyJob[];
   active_job: Job | null;
   last_job: Job | null;
+  last_scrape_job: Job | null;
 }
 export interface RunListItem {
   id: string;

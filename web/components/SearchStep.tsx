@@ -16,7 +16,7 @@ export function SearchStep({ run, refetch }: { run: RunDetail; refetch: () => Pr
   const active = run.active_job?.kind === "scrape" ? run.active_job : null;
   const c = run.counts;
   const finished = c.done + c.failed;
-  const scrapeJob = active ?? (run.last_job?.kind === "scrape" ? run.last_job : null);
+  const scrapeJob = active ?? run.last_scrape_job;
 
   async function act(fn: () => Promise<unknown>) {
     setError(null);

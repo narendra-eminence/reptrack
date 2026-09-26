@@ -16,10 +16,14 @@ const pages = {
   ]),
   "/article-2": page("Monsoon travel tips", [filler, filler, filler, filler]),
   "/article-3": page("Best cabin bags of the year", [
-    filler,
+    // Distinct sentences, not repeats of `filler`: trafilatura dedupes an exact-repeated paragraph within one
+    // page, which would silently shrink this list back down and push the single Mokobara mention's paragraph
+    // share back over the verifier's min_paragraph_share threshold.
+    "Travel gear makers reported steady demand this season as more people booked trips across the country and abroad.",
+    "Airlines have also reported a rise in checked baggage fees across most major routes this year.",
     "Among the picks, Mokobara stood out for its build quality and its lifetime warranty on wheels.",
-    filler,
-    filler,
+    "Budget conscious travelers increasingly compare hard shell and soft shell luggage before buying.",
+    "Several retailers extended their return windows heading into the festive shopping season.",
   ]),
 };
 

@@ -12,7 +12,7 @@ from typing import Any
 
 from .db import now, transaction
 from .errors import ApiError
-from .jobs import active_job, latest_job
+from .jobs import active_job, latest_job, latest_job_of_kind
 from .monitor_bridge import key_errors
 from .routes.health import VERTICALS
 
@@ -232,6 +232,7 @@ def run_detail(conn: sqlite3.Connection, run_id: str) -> dict[str, Any]:
         )
     ]
     active, last = active_job(conn, run_id), latest_job(conn, run_id)
+    last_scrape = latest_job_of_kind(conn, run_id, "scrape")
     return {
         **run,
         "counts": query_counts(conn, run_id),
@@ -239,6 +240,7 @@ def run_detail(conn: sqlite3.Connection, run_id: str) -> dict[str, Any]:
         "verify_jobs": verify_jobs_for(conn, run_id),
         "active_job": active.to_dict() if active else None,
         "last_job": last.to_dict() if last else None,
+        "last_scrape_job": last_scrape.to_dict() if last_scrape else None,
     }
 
 
