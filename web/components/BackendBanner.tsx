@@ -39,7 +39,7 @@ export function BackendBanner() {
   if (!health) return null;
   const problems: string[] = [];
   if (health.verifier_config_error) problems.push(`Verifier config: ${health.verifier_config_error}`);
-  if (!health.chromium) problems.push("Chromium for the verifier is not installed. Run `uv run playwright install chromium` in url-verification.");
+  if (!health.chromium) problems.push("Chromium for the verifier is not installed. Run `cd api && uv run playwright install chromium` in repscore-pipeline.");
   for (const [provider, message] of Object.entries(health.keys)) {
     if (message) problems.push(`${provider === "serpapi" ? "SerpAPI" : "DataForSEO"}: ${message}`);
   }
