@@ -29,17 +29,13 @@ from .jobs import JobContext, JobKind, JobOutcome, JobRecord
 
 def snapshot_rules(config_path: Path, brand_set: str) -> str:
     """Resolve the set from a FRESH read of config.yaml and deep-copy it to JSON. Exact name; no fallback."""
-    import yaml
-    from urlverify.config import ConfigError, load_config
+    from urlverify.config import load_config
+
+    from .config_errors import CONFIG_LOAD_ERRORS
 
     try:
         cfg = load_config(config_path)
-    # yaml.safe_load raises yaml.YAMLError (not a ValueError) on malformed YAML; a well-formed but top-level
-    # list/scalar document (instead of a mapping) makes load_config's raw.get(...) raise AttributeError, and a
-    # value of the wrong type for a field it expects can raise TypeError deep inside load_config. Every one of
-    # these is "the config file this app was told to use is broken", exactly like ConfigError/OSError/ValueError -
-    # never a 500.
-    except (ConfigError, OSError, ValueError, yaml.YAMLError, AttributeError, TypeError) as e:
+    except CONFIG_LOAD_ERRORS as e:
         raise ApiError(422, f"The verifier config {config_path} could not be read: {e}") from None
     rules = cfg.brands.get(brand_set)
     if rules is None:
