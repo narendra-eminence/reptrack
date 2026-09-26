@@ -61,8 +61,11 @@ export const api = {
   verifyRows: (id: string, vj: number, p: { offset: number; limit: number; status?: string; hide_duplicates?: boolean; q?: string }) =>
     request<Page<VerifyRow>>(`/api/runs/${id}/verify/${vj}/results${qs(p)}`),
   brands: () => request<{ sets: BrandSet[] }>("/api/brands"),
-  saveBrand: (name: string, rules: BrandRule[]) =>
-    request<{ name: string; backup: string }>(`/api/brands/${encodeURIComponent(name)}`, { method: "PUT", body: JSON.stringify({ rules }) }),
+  saveBrand: (name: string, rules: BrandRule[], create = false) =>
+    request<{ name: string; backup: string }>(`/api/brands/${encodeURIComponent(name)}`, {
+      method: "PUT",
+      body: JSON.stringify({ rules, create }),
+    }),
   deleteBrand: (name: string) =>
     request<{ deleted: string; backup: string }>(`/api/brands/${encodeURIComponent(name)}`, { method: "DELETE" }),
   testBrand: (body: { text: string; rules?: BrandRule[]; set?: string }) => post<TryResult>("/api/brands/test", body),

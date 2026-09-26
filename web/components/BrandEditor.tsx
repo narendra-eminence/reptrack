@@ -27,6 +27,7 @@ export function BrandEditor() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [savedSnapshot, setSavedSnapshot] = useState(() => JSON.stringify({ name: "", rules: [emptyDraft()] }));
 
   const load = useCallback(async () => {
     try {
@@ -51,14 +52,30 @@ export function BrandEditor() {
     };
   }, []);
 
-  function open(set: BrandSet | null) {
+  function snapshotOf(n: string, rs: DraftRule[]) {
+    return JSON.stringify({ name: n, rules: rs });
+  }
+
+  function isDirty() {
+    return snapshotOf(name, rules) !== savedSnapshot;
+  }
+
+  function openNow(set: BrandSet | null) {
     setCurrent(set?.name ?? null);
-    setName(set?.name ?? "");
-    setRules(set ? set.rules.map(toDraft) : [emptyDraft()]);
+    const n = set?.name ?? "";
+    const rs = set ? set.rules.map(toDraft) : [emptyDraft()];
+    setName(n);
+    setRules(rs);
+    setSavedSnapshot(snapshotOf(n, rs));
     setError(null);
     setSaved(null);
     setTried(null);
     setTryError(null);
+  }
+
+  function open(set: BrandSet | null) {
+    if (isDirty() && !window.confirm("Discard unsaved changes?")) return;
+    openNow(set);
   }
 
   const update = (i: number, patch: Partial<DraftRule>) => setRules((rs) => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)));
@@ -66,10 +83,16 @@ export function BrandEditor() {
   async function save() {
     setError(null);
     setSaved(null);
+    const trimmed = name.trim();
+    if (current === null && sets.some((s) => s.name === trimmed)) {
+      setError(`A set named ${trimmed} already exists - open it to edit.`);
+      return;
+    }
     try {
-      const res = await api.saveBrand(name.trim(), rules.map(fromDraft));
+      const res = await api.saveBrand(trimmed, rules.map(fromDraft), current === null);
       await load();
       setCurrent(res.name);
+      setSavedSnapshot(snapshotOf(trimmed, rules));
       setSaved(`Saved. The previous config.yaml was backed up to ${res.backup.split("/").pop()}.`);
     } catch (e) {
       setError(errorMessage(e));
@@ -85,7 +108,7 @@ export function BrandEditor() {
       setDeleteOpen(false);
       setDeleting(false);
       await load();
-      open(null);
+      openNow(null);
     } catch (e) {
       setDeleteError(errorMessage(e));
       setDeleting(false);

@@ -15,6 +15,7 @@ router = APIRouter()
 
 class SaveBody(BaseModel):
     rules: list[dict[str, Any]]
+    create: bool = False
 
 
 class TestBody(BaseModel):
@@ -45,6 +46,13 @@ def list_brands(request: Request) -> dict:
 
 @router.put("/api/brands/{name}")
 def save_brand(request: Request, name: str, body: SaveBody) -> dict:
+    if body.create:
+        try:
+            existing = brands.list_sets(_config(request))
+        except CONFIG_LOAD_ERRORS as e:
+            raise ApiError(422, f"config.yaml could not be read: {e}") from None
+        if name in existing:
+            raise ApiError(409, f"A set named {name!r} already exists.")
     try:
         backup = brands.save_set(_config(request), name, _rules(body.rules))
     except CONFIG_WRITE_ERRORS as e:
@@ -75,6 +83,6 @@ def test_brand(request: Request, body: TestBody) -> dict:
         rules = _rules(body.rules or [])
         try:
             brands.validate_set("test", rules)
-        except ConfigError as e:
+        except CONFIG_WRITE_ERRORS as e:
             raise ApiError(422, str(e)) from None
     return brands.try_rules(rules, body.text)

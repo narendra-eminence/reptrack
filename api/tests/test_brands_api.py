@@ -38,6 +38,25 @@ def test_unknown_rule_field_and_missing_set(settings):
         assert c.delete("/api/brands/nope").status_code == 422
 
 
+def test_create_true_refuses_to_overwrite_an_existing_set(settings):
+    with make_client(settings, search_one=FakeSearch()) as c:
+        assert c.put("/api/brands/acme", json={"rules": [ACME], "create": True}).status_code == 409
+        r = c.put("/api/brands/acme", json={"rules": [ACME], "create": True})
+        assert r.json()["error"]
+        # without create=true (or false), the existing behaviour - overwrite in place - is unchanged
+        assert c.put("/api/brands/acme", json={"rules": [ACME]}).status_code == 200
+        assert c.put("/api/brands/brand-new", json={"rules": [ACME], "create": True}).status_code == 200
+
+
+def test_test_endpoint_reports_422_not_500_for_bad_rule_types(settings):
+    """Controller ruling (finding 12): a TypeError/AttributeError from validate_set (e.g. a string
+    context_window) must not surface as a 500."""
+    with make_client(settings, search_one=FakeSearch()) as c:
+        r = c.post("/api/brands/test", json={"text": "hello", "rules": [{**ACME, "context_window": "abc"}]})
+        assert r.status_code == 422
+        assert "error" in r.json()
+
+
 def test_malformed_yaml_returns_422_on_get(settings, tmp_path):
     # Corrupt the config.yaml to have invalid YAML syntax
     from pipeline_api.settings import Settings
