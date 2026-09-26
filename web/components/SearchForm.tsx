@@ -12,7 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { api, errorMessage } from "@/lib/api";
+import { ApiError, api, errorMessage } from "@/lib/api";
 import { PROVIDER_LABEL, VERTICAL_LABEL, fmt } from "@/lib/format";
 import type { Options, Provider, SearchInput, Vertical } from "@/lib/types";
 import { usePlan } from "@/lib/usePlan";
@@ -23,27 +23,36 @@ export function SearchForm() {
   const router = useRouter();
   const [options, setOptions] = useState<Options>(FALLBACK);
   const [form, setForm] = useState<SearchInput>({ queries: "", provider: "serpapi", vertical: "web", pages: "1", start: "", end: "" });
-  const { plan, error, loading } = usePlan(form);
+  const { plan, error, loading, stale } = usePlan(form);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  // Overrides plan.max_calls once the server has reported a changed ceiling (409 with max_calls) for this
+  // in-flight confirmation; null means "use the plan's own figure".
+  const [confirmCalls, setConfirmCalls] = useState<number | null>(null);
 
   useEffect(() => {
     api.options().then(setOptions).catch(() => undefined); // the banner reports a down backend
   }, []);
 
   const set = <K extends keyof SearchInput>(key: K, value: SearchInput[K]) => setForm((f) => ({ ...f, [key]: value }));
-  const canRun = !!plan && !error && !loading && !submitting;
+  const canRun = !!plan && !error && !loading && !stale && !submitting;
   const isNews = form.vertical === "news"; // news cannot paginate; the API always pins it to 1 (bulk_search.pages_for)
+  const confirmedCalls = confirmCalls ?? plan?.max_calls;
 
   async function submit() {
     if (!plan) return;
     setSubmitting(true);
     setSubmitError(null);
     try {
-      const { id } = await api.createRun({ ...form, confirmed_calls: plan.max_calls });
+      const { id } = await api.createRun({ ...form, confirmed_calls: confirmedCalls ?? plan.max_calls });
       router.push(`/runs/${id}`);
     } catch (e) {
+      if (e instanceof ApiError && e.status === 409 && e.body && typeof e.body === "object" && "max_calls" in e.body) {
+        // The billable ceiling changed (e.g. more of the query set is now cached) since this dialog opened; show
+        // the server's own message (it already names the new figure) and let the user confirm it instead.
+        setConfirmCalls((e.body as { max_calls: number }).max_calls);
+      }
       setSubmitError(errorMessage(e));
       setSubmitting(false);
     }
@@ -101,14 +110,14 @@ export function SearchForm() {
       </section>
       <aside className="space-y-4">
         <PlanPreview plan={plan} error={error} loading={loading} provider={form.provider} />
-        <Button className="w-full" disabled={!canRun} onClick={() => { setSubmitError(null); setConfirmOpen(true); }}>Run search</Button>
+        <Button className="w-full" disabled={!canRun} onClick={() => { setSubmitError(null); setConfirmCalls(null); setConfirmOpen(true); }}>Run search</Button>
       </aside>
       <AlertDialog open={confirmOpen} onOpenChange={(open) => { if (!submitting) setConfirmOpen(open); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Start this search?</AlertDialogTitle>
             <AlertDialogDescription>
-              This can make up to {fmt(plan?.max_calls)} billable SERP page requests on {PROVIDER_LABEL[form.provider]} ({fmt(plan?.cached_calls)} already cached and free). Queries stop early when results run out, so the real number is usually lower.
+              This can make up to {fmt(confirmedCalls)} billable SERP page requests on {PROVIDER_LABEL[form.provider]} ({fmt(plan?.cached_calls)} already cached and free). Queries stop early when results run out, so the real number is usually lower.
             </AlertDialogDescription>
           </AlertDialogHeader>
           {submitError && <p role="alert" className="text-sm text-red-700">{submitError}</p>}
