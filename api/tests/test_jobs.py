@@ -1,5 +1,6 @@
 import asyncio
 import threading
+import time
 
 import pytest
 
@@ -196,5 +197,115 @@ async def test_requeue_failed_job(db):
             runner.requeue(conn, job_id)
         runner.wake()
         await _wait_state(db, job_id, {"done"})
+    finally:
+        await runner.stop()
+
+
+async def test_requeue_rejects_non_terminal_state(db):
+    runner = JobRunner(db, EventBus(), {"fake": Recorder().kind()})
+    job_id = _enqueue(runner, db, "r1")  # left 'queued'
+    with session(db) as conn, transaction(conn, immediate=True), pytest.raises(ValueError):
+        runner.requeue(conn, job_id)
+
+
+async def test_cancel_missing_job_raises_lookup_error(db):
+    runner = JobRunner(db, EventBus(), {"fake": Recorder().kind()})
+    with pytest.raises(LookupError):
+        runner.cancel(9999)
+
+
+async def test_on_failed_hook_raising_still_marks_failed_and_runner_continues(db):
+    def bad_hook(conn, job, msg):
+        raise RuntimeError("hook boom")
+
+    async def boom(ctx):
+        raise ValueError("x")
+
+    rec = Recorder()
+    kinds = {
+        "bad": JobKind(run=boom, on_failed=bad_hook, on_cancelled=lambda c, j: None),
+        "fake": rec.kind(),
+    }
+    runner = JobRunner(db, EventBus(), kinds)
+    await runner.start()
+    try:
+        j1 = _enqueue(runner, db, "r1", "bad")
+        state = await _wait_state(db, j1, {"failed"})
+        assert state == "failed"
+        with session(db) as conn:
+            error = conn.execute("SELECT error FROM jobs WHERE id = ?", (j1,)).fetchone()[0]
+        assert "hook" in error.lower() or "runtimeerror" in error.lower()
+        j2 = _enqueue(runner, db, "r2", "fake")
+        await _wait_state(db, j2, {"done"})
+        assert rec.ran == [j2]
+    finally:
+        await runner.stop()
+
+
+async def test_unknown_kind_marks_failed_and_runner_continues(db):
+    rec = Recorder()
+    runner = JobRunner(db, EventBus(), {"fake": rec.kind()})
+    await runner.start()
+    try:
+        with session(db) as conn, transaction(conn, immediate=True):
+            job_id = runner.enqueue(conn, "r1", "mystery")
+        runner.wake()
+        await _wait_state(db, job_id, {"failed"})
+        with session(db) as conn:
+            error = conn.execute("SELECT error FROM jobs WHERE id = ?", (job_id,)).fetchone()[0]
+        assert "mystery" in error
+        j2 = _enqueue(runner, db, "r2", "fake")
+        await _wait_state(db, j2, {"done"})
+        assert rec.ran == [j2]
+    finally:
+        await runner.stop()
+
+
+async def test_stop_while_running_leaves_row_running_and_skips_cancelled_hook(db):
+    rec = Recorder()
+    rec.gate.clear()
+    runner = JobRunner(db, EventBus(), {"fake": rec.kind()})
+    await runner.start()
+    try:
+        job_id = _enqueue(runner, db, "r1")
+        await _wait_state(db, job_id, {"running"})
+    finally:
+        await runner.stop()
+    with session(db) as conn:
+        assert conn.execute("SELECT state FROM jobs WHERE id = ?", (job_id,)).fetchone()[0] == "running"
+    assert rec.cancelled == []
+
+
+async def test_cancel_lands_in_window_between_claim_and_execute(db):
+    """A cancel() landing between _claim_next's commit and _execute registering the cancel event must still
+    be seen by the job, not silently lost and overwritten by a later 'done'."""
+    rec = Recorder()
+    rec.gate.clear()
+    runner = JobRunner(db, EventBus(), {"fake": rec.kind()})
+    original_claim = runner._claim_next
+    claimed = threading.Event()
+
+    def delayed_claim():
+        job = original_claim()
+        if job is not None:
+            claimed.set()
+            time.sleep(0.2)  # widen the window so cancel() (on another thread) lands before _execute registers
+        return job
+
+    runner._claim_next = delayed_claim
+    await runner.start()
+    try:
+        job_id = _enqueue(runner, db, "r1")
+
+        def cancel_during_window():
+            claimed.wait(2)
+            runner.cancel(job_id)
+
+        t = threading.Thread(target=cancel_during_window)
+        t.start()
+        state = await _wait_state(db, job_id, {"cancelled"}, timeout=5.0)
+        t.join(2)
+        assert state == "cancelled"
+        assert rec.cancelled == [job_id]
     finally:
         await runner.stop()

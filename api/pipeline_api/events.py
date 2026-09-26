@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from collections import defaultdict
 from typing import Any
 
@@ -39,4 +40,6 @@ class EventBus:
     def publish_threadsafe(self, run_id: str, event: dict[str, Any]) -> None:
         if self._loop is None or self._loop.is_closed():
             return
-        self._loop.call_soon_threadsafe(self.publish, run_id, event)
+        # The loop can still close between the check above and this call; that race is harmless to lose.
+        with contextlib.suppress(RuntimeError):
+            self._loop.call_soon_threadsafe(self.publish, run_id, event)
