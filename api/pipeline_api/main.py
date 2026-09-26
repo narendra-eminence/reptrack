@@ -14,6 +14,7 @@ from .events import EventBus
 from .jobs import JobRunner
 from .logs import configure_logging
 from .monitor_bridge import load_bulk_search
+from .routes import events as events_routes
 from .routes import health
 from .routes import runs as runs_routes
 from .routes import verify as verify_routes
@@ -55,4 +56,5 @@ def create_app(
     app.include_router(health.router)
     app.include_router(runs_routes.router)
     app.include_router(verify_routes.router)
+    app.include_router(events_routes.router)
     return app
