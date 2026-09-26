@@ -38,8 +38,6 @@ def start_verify(request: Request, run_id: str, body: VerifyBody) -> dict:
                 if active:
                     raise ActiveJobError(active.id, active.kind)
                 counts = runs.query_counts(conn, run_id)
-                if counts["pending"]:
-                    raise ApiError(409, f"{counts['pending']} queries have not finished. Retry them before verifying.")
                 if not counts["serp_rows"]:
                     raise ApiError(409, "This run has no search results to verify.")
                 snapshot = snapshot_rules(deps.settings.verifier_config, body.brand_set)

@@ -105,6 +105,35 @@ def test_verify_happy_path_with_real_pipeline_and_snapshot(settings, keys, page_
         assert c.post(f"/api/runs/{run_id}/verify", json={"brand_set": "acme"}).status_code == 422  # deleted now
 
 
+def test_verify_allowed_after_cancelled_search_with_partial_results(settings, keys):
+    """Controller ruling: verifying partial results after a cancelled search is allowed when there is no active
+    job and serp_rows > 0 - even with queries still pending."""
+    fake = FakeSearch()
+    fake.gate.clear()
+    fake.block_after = 1
+    with make_client(settings, search_one=fake, pipeline_run=fake_pipeline("ok")) as c:
+        body = {**SEARCH_BODY, "queries": "\n".join(f"q{i}" for i in range(10)), "confirmed_calls": 10}
+        run_id = c.post("/api/runs", json=body).json()["id"]
+        job_id = wait_until(lambda: c.get(f"/api/runs/{run_id}").json()["active_job"])["id"]
+        wait_until(lambda: c.get(f"/api/runs/{run_id}").json()["counts"]["done"] >= 1)
+        c.post(f"/api/jobs/{job_id}/cancel")
+        fake.gate.set()
+        detail = wait_until(lambda: (d := c.get(f"/api/runs/{run_id}").json())["status"] == "scraped" and d)
+        assert detail["counts"]["pending"] > 0 and detail["counts"]["serp_rows"] > 0
+        r = c.post(f"/api/runs/{run_id}/verify", json={"brand_set": "acme"})
+        assert r.status_code == 200
+        wait_until(lambda: c.get(f"/api/runs/{run_id}").json()["status"] == "verified")
+
+
+def test_verify_with_no_results_is_still_409(settings, keys):
+    with make_client(settings, search_one=FakeSearch(), pipeline_run=fake_pipeline("ok")) as c:
+        run_id = c.post("/api/runs", json={**SEARCH_BODY, "queries": "fail: nope", "confirmed_calls": 1}).json()["id"]
+        wait_until(lambda: c.get(f"/api/runs/{run_id}").json()["status"] == "scraped")
+        r = c.post(f"/api/runs/{run_id}/verify", json={"brand_set": "acme"})
+        assert r.status_code == 409
+        assert "no search results to verify" in r.json()["error"]
+
+
 def test_malformed_config_yaml_is_422_not_500(settings, keys):
     settings.verifier_config.write_text("brands: [unclosed")
     with make_client(settings, search_one=FakeSearch(), pipeline_run=fake_pipeline("ok")) as c:
