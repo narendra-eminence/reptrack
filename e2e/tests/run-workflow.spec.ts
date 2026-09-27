@@ -1,6 +1,8 @@
 import { expect, test } from "@playwright/test";
 import { createRun, shot } from "./helpers";
 
+const PRIMARY = '[data-primary-action="true"]';
+
 test("redirect lands on the right step from persisted state", async ({ page }, info) => {
   const name = `mokobara luggage wf-redirect ${info.project.name}`;
   await createRun(page, [name, "mokobara review"]);
@@ -19,6 +21,20 @@ test("redirect lands on the right step from persisted state", async ({ page }, i
   await expect(page.getByTestId("verify-progress")).toContainText("Verification finished", { timeout: 60_000 });
   await page.goto(`/runs/${runId}`);
   await expect(page).toHaveURL(new RegExp(`/runs/${runId}/done$`));
+});
+
+test("redirect lands on /search for a fresh run with zero SERP rows", async ({ page }, info) => {
+  // A run whose only query fails leaves counts.serp_rows at 0, so it must not be sent to /verify.
+  await createRun(page, [`fail: broken query ${info.project.name}`]);
+  await expect(page.getByTestId("search-progress")).toContainText("Search finished");
+  await expect(page.getByTestId("search-progress")).toContainText("0 results");
+  await expect(page.getByTestId("serp-total")).toHaveCount(0); // no rows -> the results table isn't rendered at all
+  const url = page.url();
+  const runId = url.match(/\/runs\/([0-9a-f]{12})\//)?.[1];
+  if (!runId) throw new Error(`could not extract run id from ${url}`);
+
+  await page.goto(`/runs/${runId}`);
+  await expect(page).toHaveURL(new RegExp(`/runs/${runId}/search$`));
 });
 
 test("locked steps stay locked and direct URLs show the fallback panel", async ({ page }, info) => {
@@ -41,20 +57,40 @@ test("locked steps stay locked and direct URLs show the fallback panel", async (
   await expect(page).toHaveURL(new RegExp(`/runs/${runId}/(search|verify)$`));
 });
 
-test("continue buttons navigate to the next step", async ({ page }, info) => {
+test("verify locked panel shows on a zero-result run with a working link back", async ({ page }, info) => {
+  await createRun(page, [`fail: broken query wf-verify-locked ${info.project.name}`]);
+  await expect(page.getByTestId("search-progress")).toContainText("Search finished");
+  const url = page.url();
+  const runId = url.match(/\/runs\/([0-9a-f]{12})\//)?.[1];
+  if (!runId) throw new Error(`could not extract run id from ${url}`);
+
+  await page.goto(`/runs/${runId}/verify`);
+  const locked = page.getByTestId("locked-step");
+  await expect(locked).toContainText("Available once the search has results.");
+  await locked.getByRole("link").click();
+  await expect(page).toHaveURL(new RegExp(`/runs/${runId}/search$`));
+});
+
+test("continue buttons navigate to the next step, and at most one red primary button shows at a time", async ({ page }, info) => {
   const name = `mokobara luggage wf-continue ${info.project.name}`;
   await createRun(page, [name, "mokobara review"]);
   await expect(page.getByTestId("search-progress")).toContainText("Search finished");
+  await expect(page.locator(PRIMARY)).toHaveCount(1); // Continue to Verify
 
   await page.getByTestId("continue-to-verify").click();
   await expect(page).toHaveURL(/\/runs\/[0-9a-f]{12}\/verify$/);
+  await expect(page.locator(PRIMARY)).toHaveCount(1); // Start verification, before any verification exists
 
   await page.getByLabel("Brand set").selectOption("mokobara");
   await page.getByRole("button", { name: "Start verification" }).click();
   await expect(page.getByTestId("verify-progress")).toContainText("Verification finished", { timeout: 60_000 });
+  await expect(page.locator(PRIMARY)).toHaveCount(1); // Continue to Done; Start verification is now outline
+  await expect(page.getByRole("button", { name: "Start verification" })).not.toHaveAttribute("data-primary-action", "true");
+
   await page.getByTestId("continue-to-done").click();
   await expect(page).toHaveURL(/\/runs\/[0-9a-f]{12}\/done$/);
   await expect(page.getByRole("heading", { name: "3. Done" })).toBeVisible();
+  await expect(page.locator(PRIMARY)).toHaveCount(0); // Done has no red primary button
 });
 
 test("switching steps does not reconnect the SSE stream or refetch the run", async ({ page }, info) => {
@@ -81,7 +117,7 @@ test("switching steps does not reconnect the SSE stream or refetch the run", asy
   expect(runRequests).toHaveLength(0);
 });
 
-test("step URL state survives navigation, reload and back/forward", async ({ page }, info) => {
+test("step URL state survives a slide to another step and back, reload, Back/Forward and a page change", async ({ page }, info) => {
   const first = `mokobara luggage wf-urlstate-a ${info.project.name}`;
   await createRun(page, [first, "mokobara review", "fail: broken query"]);
   await expect(page.getByTestId("search-progress")).toContainText("Search finished");
@@ -94,28 +130,36 @@ test("step URL state survives navigation, reload and back/forward", async ({ pag
   await expect(page.getByLabel("Search results")).toHaveValue("article-3");
   await expect(page.getByTestId("serp-total")).toHaveText("1");
 
-  // Sliding to another step and back via the stepper - each is its own navigation, not history replay, so the
-  // stepper always lands on the step's plain URL (no carried-over filter).
+  // Sliding to another step and back via the stepper restores the step's own last query string - the shell
+  // remembers it per step for this run, independent of history.
   await page.getByTestId("continue-to-verify").click();
   await expect(page).toHaveURL(/\/verify$/);
   await page.getByTestId("step-search").click();
-  await expect(page).toHaveURL(new RegExp(`/search$`));
-  await expect(page.getByLabel("Search results")).toHaveValue("");
-
-  // Browser Back/Forward replay history exactly, restoring the filtered URL and its state.
-  await page.getByLabel("Search results").fill("article-3");
   await expect(page).toHaveURL(/[?&]q=article-3/);
+  await expect(page.getByLabel("Search results")).toHaveValue("article-3");
+  await expect(page.getByTestId("serp-total")).toHaveText("1");
+
+  // Browser Back/Forward replay history exactly, restoring the filtered URL and its state too.
   await page.getByTestId("continue-to-verify").click();
   await expect(page).toHaveURL(/\/verify$/);
   await page.goBack();
   await expect(page).toHaveURL(/[?&]q=article-3/);
   await expect(page.getByLabel("Search results")).toHaveValue("article-3");
-  await expect(page.getByTestId("serp-total")).toHaveText("1");
   await page.goForward();
   await expect(page).toHaveURL(/\/verify$/);
+
+  // The page number round-trips the same way: set it directly, then reload and go back to it.
+  await page.goto(`/runs/${page.url().match(/runs\/([0-9a-f]{12})/)?.[1]}/search?page=2`);
+  await expect(page).toHaveURL(/[?&]page=2/);
+  await page.reload();
+  await expect(page).toHaveURL(/[?&]page=2/);
+  await page.getByTestId("continue-to-verify").click();
+  await expect(page).toHaveURL(/\/verify$/);
+  await page.getByTestId("step-search").click();
+  await expect(page).toHaveURL(/[?&]page=2/);
 });
 
-test("verify URL state (status chip, hide duplicates, filter) survives navigation and reload", async ({ page }, info) => {
+test("verify URL state (status chip, hide duplicates, filter) survives a slide to another step, reload and Back/Forward", async ({ page }, info) => {
   const name = `mokobara luggage wf-verify-urlstate ${info.project.name}`;
   await createRun(page, [name, "mokobara review"]);
   await expect(page.getByTestId("search-progress")).toContainText("Search finished");
@@ -132,23 +176,23 @@ test("verify URL state (status chip, hide duplicates, filter) survives navigatio
   await expect(page.getByTestId("chip-Verified")).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByLabel("Hide duplicates")).toBeChecked();
 
-  // Sliding to another step and back via the stepper is a fresh navigation, not history replay: the chip
-  // selection does not carry over (the plain Verify URL, unfiltered, is shown instead).
+  // Sliding to another step and back via the stepper restores the chip/hide-duplicates/filter selection - the
+  // shell remembers Verify's own last query string independent of history.
   await page.getByTestId("step-search").click();
   await expect(page).toHaveURL(/\/search$/);
   await page.getByTestId("step-verify").click();
-  await expect(page).toHaveURL(new RegExp(`/verify$`));
-  await expect(page.getByTestId("chip-Verified")).toHaveAttribute("aria-pressed", "false");
-
-  // Browser Back/Forward replay history exactly, restoring the selected chip and its state.
-  await page.getByTestId("chip-Verified").click();
-  await expect(page).toHaveURL(/[?&]status=Verified/);
-  await page.getByTestId("step-search").click();
-  await expect(page).toHaveURL(/\/search$/);
-  await page.goBack();
   await expect(page).toHaveURL(/[?&]status=Verified/);
   await expect(page.getByTestId("chip-Verified")).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByLabel("Hide duplicates")).toBeChecked();
+
+  // Browser Back/Forward replay history exactly too.
+  await page.getByLabel("Hide duplicates").uncheck();
+  await expect(page).toHaveURL(/[?&]dups=show/);
+  await page.getByTestId("step-search").click();
+  await expect(page).toHaveURL(/\/search$/);
+  await page.goBack();
+  await expect(page).toHaveURL(/[?&]dups=show/);
+  await expect(page.getByLabel("Hide duplicates")).not.toBeChecked();
 });
 
 test("step navigation ends on the right URL and content, with and without reduced motion", async ({ page }, info) => {
@@ -171,4 +215,40 @@ test("step navigation ends on the right URL and content, with and without reduce
   await expect(page).toHaveURL(/\/search$/);
   await expect(page.getByRole("heading", { name: "1. Search" })).toBeVisible();
   await shot(page, "workflow-animation-end", info);
+});
+
+test("clicking the current step's own stepper link does not freeze navigation", async ({ page }, info) => {
+  const name = `mokobara luggage wf-selfclick ${info.project.name}`;
+  await createRun(page, [name, "mokobara review"]);
+  await expect(page.getByTestId("search-progress")).toContainText("Search finished");
+
+  // Clicking Search's own stepper link while already on Search: there is no pathname change to animate
+  // against, so this must resolve immediately rather than waiting on a settle that will never come.
+  await page.getByTestId("step-search").click();
+  await expect(page).toHaveURL(/\/search$/);
+
+  // The very next interaction must land within a second, proving the click above never left anything hung.
+  await page.getByTestId("continue-to-verify").click();
+  await expect(page).toHaveURL(/\/verify$/, { timeout: 1_000 });
+});
+
+test("the stepper does not shift position between steps", async ({ page }, info) => {
+  const name = `mokobara luggage wf-stepper-shift ${info.project.name}`;
+  await createRun(page, [name, "mokobara review"]);
+  await expect(page.getByTestId("search-progress")).toContainText("Search finished");
+  const searchX = (await page.getByTestId("step-search").boundingBox())?.x;
+  const verifyXAtSearch = (await page.getByTestId("step-verify").boundingBox())?.x;
+
+  await page.getByTestId("continue-to-verify").click();
+  await expect(page).toHaveURL(/\/verify$/);
+  expect((await page.getByTestId("step-search").boundingBox())?.x).toBe(searchX);
+  expect((await page.getByTestId("step-verify").boundingBox())?.x).toBe(verifyXAtSearch);
+
+  await page.getByLabel("Brand set").selectOption("mokobara");
+  await page.getByRole("button", { name: "Start verification" }).click();
+  await expect(page.getByTestId("verify-progress")).toContainText("Verification finished", { timeout: 60_000 });
+  await page.getByTestId("continue-to-done").click();
+  await expect(page).toHaveURL(/\/done$/);
+  expect((await page.getByTestId("step-search").boundingBox())?.x).toBe(searchX);
+  expect((await page.getByTestId("step-verify").boundingBox())?.x).toBe(verifyXAtSearch);
 });

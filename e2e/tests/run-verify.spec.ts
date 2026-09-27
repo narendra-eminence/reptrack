@@ -39,6 +39,7 @@ test("verifies results with a chosen brand set and exports", async ({ page }, in
   await page.getByTestId("continue-to-done").click();
   await expect(page).toHaveURL(/\/runs\/[0-9a-f]{12}\/done$/);
   await expect(page.getByRole("heading", { name: "3. Done" })).toBeVisible();
-  await page.waitForTimeout(400); // let the ~260ms slide transition settle before the pixel-review screenshot
+  // Wait for the slide transition to actually finish (not a fixed timeout) before the pixel-review screenshot.
+  await expect.poll(() => page.evaluate(() => document.getAnimations().length)).toBe(0);
   await shot(page, "run-done", info);
 });
