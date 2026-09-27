@@ -66,6 +66,44 @@ def fake_pipeline(
     return run
 
 
+def test_verify_ingests_and_filters_search_snippet_match_status(settings, keys):
+    """The API ingests the sheet's columns generically (whatever Status/Evidence Source values the pipeline
+    writes), so no API code change is needed for the new SERP-fallback status - this only proves it round-trips:
+    ingestion into verify_rows, the status_counts summary, and the results endpoint's status filter."""
+
+    async def run(input_path, output_path, cfg, brand, cache_dir="cache", rules=None, on_result=None, **kw):
+        df = pd.read_excel(input_path)
+        statuses = ["Search snippet match"] + ["Verified"] * (len(df) - 1)
+        evidence = ["serp"] + ["page"] * (len(df) - 1)
+        for s in statuses:
+            assert on_result is not None
+            on_result(s)
+        _write_output(
+            output_path,
+            [
+                {**r, "Status": s, "Evidence Source": e, "Hit Sentence": "Acme reported growth", "Duplicate Of Row": None}
+                for r, s, e in zip(df.to_dict("records"), statuses, evidence, strict=True)
+            ],
+        )
+        return {"Search snippet match": 1, "Verified": len(df) - 1, "_rows": len(df), "_duplicates": 0, "_unique": len(df)}
+
+    with make_client(settings, search_one=FakeSearch(), pipeline_run=run) as c:
+        run_id = _scraped_run(c, None)
+        r = c.post(f"/api/runs/{run_id}/verify", json={"brand_set": "acme"})
+        assert r.status_code == 200
+        vj = r.json()["verify_job_id"]
+        detail = wait_until(lambda: (d := c.get(f"/api/runs/{run_id}").json())["status"] == "verified" and d)
+        job = detail["verify_jobs"][0]
+        assert job["status_counts"]["Search snippet match"] == 1
+
+        res = c.get(f"/api/runs/{run_id}/verify/{vj}/results", params={"status": "Search snippet match"}).json()
+        assert res["total"] == 1
+        row = res["rows"][0]
+        assert row["status"] == "Search snippet match"
+        assert row["row"]["Evidence Source"] == "serp"
+        assert row["row"]["Hit Sentence"] == "Acme reported growth"
+
+
 def test_verify_happy_path_with_real_pipeline_and_snapshot(settings, keys, page_server, monkeypatch):
     fake = FakeSearch({"alpha": [page_server + "/acme", page_server + "/plain", page_server + "/acme?utm_source=x"]})
     import urlverify.pipeline as pl
