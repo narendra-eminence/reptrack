@@ -28,6 +28,7 @@ lint:
 
 test:
 	cd api && uv run pytest -q
+	cd web && npm test
 	cd $(COMPANY_MONITOR_DIR) && venv/bin/python -m unittest discover -s tests -q
 	cd $(URL_VERIFICATION_DIR) && uv run pytest -q
 
