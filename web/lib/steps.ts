@@ -58,7 +58,11 @@ export function stepStates(run: RunDetail, current: StepKey | null): { key: Step
   });
 }
 
+export function stepHref(runId: string, step: StepKey, query = ""): string {
+  return query ? `/runs/${runId}/${step}?${query}` : `/runs/${runId}/${step}`;
+}
+
 export function currentStepFromPath(pathname: string): StepKey | null {
-  const m = pathname.match(/\/runs\/[^/]+\/(search|verify|done)(?:\/|$)/);
+  const m = pathname.match(/\/runs\/[^/]+\/(search|verify|done)(?:\/|\?|$)/);
   return (m?.[1] as StepKey | undefined) ?? null;
 }

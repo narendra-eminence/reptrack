@@ -167,6 +167,13 @@ h3 {
   animation-timing-function: ease;
 }
 
+/* The root's own default cross-fade would otherwise fade the whole page in addition to the step panel's
+   slide; disabling it keeps only the step region animating. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+}
+
 html[data-step-direction="forward"]::view-transition-old(step-panel) {
   animation: step-slide-out-left 260ms ease both;
 }
