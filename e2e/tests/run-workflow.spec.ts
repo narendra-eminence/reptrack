@@ -236,19 +236,76 @@ test("the stepper does not shift position between steps", async ({ page }, info)
   const name = `mokobara luggage wf-stepper-shift ${info.project.name}`;
   await createRun(page, [name, "mokobara review"]);
   await expect(page.getByTestId("search-progress")).toContainText("Search finished");
-  const searchX = (await page.getByTestId("step-search").boundingBox())?.x;
-  const verifyXAtSearch = (await page.getByTestId("step-verify").boundingBox())?.x;
+
+  async function assertStepperGeometry() {
+    for (const key of ["search", "verify", "done"] as const) {
+      const badge = await page.getByTestId(`step-${key}-badge`).boundingBox();
+      const label = await page.getByTestId(`step-${key}-label`).boundingBox();
+      if (!badge || !label) throw new Error(`missing boundingBox for step ${key}`);
+      const badgeCenterY = badge.y + badge.height / 2;
+      const labelCenterY = label.y + label.height / 2;
+      expect(Math.abs(badgeCenterY - labelCenterY)).toBeLessThanOrEqual(1);
+    }
+    // Equal gaps on both sides of each connector: badge-to-label gap within a step should match the
+    // label-to-connector and connector-to-next-badge gaps (a stray width around the label would break this).
+    for (let i = 0; i < 2; i++) {
+      const label = await page.getByTestId(`step-${["search", "verify", "done"][i]}-label`).boundingBox();
+      const connector = await page.getByTestId(`step-connector-${i}`).boundingBox();
+      const nextBadge = await page.getByTestId(`step-${["search", "verify", "done"][i + 1]}-badge`).boundingBox();
+      if (!label || !connector || !nextBadge) throw new Error("missing boundingBox around connector");
+      const gapBefore = connector.x - (label.x + label.width);
+      const gapAfter = nextBadge.x - (connector.x + connector.width);
+      expect(Math.abs(gapBefore - gapAfter)).toBeLessThanOrEqual(1);
+    }
+    return {
+      search: (await page.getByTestId("step-search").boundingBox())?.x,
+      verify: (await page.getByTestId("step-verify").boundingBox())?.x,
+    };
+  }
+
+  const atSearch = await assertStepperGeometry();
 
   await page.getByTestId("continue-to-verify").click();
   await expect(page).toHaveURL(/\/verify$/);
-  expect((await page.getByTestId("step-search").boundingBox())?.x).toBe(searchX);
-  expect((await page.getByTestId("step-verify").boundingBox())?.x).toBe(verifyXAtSearch);
+  const atVerify = await assertStepperGeometry();
+  expect(atVerify.search).toBe(atSearch.search);
+  expect(atVerify.verify).toBe(atSearch.verify);
 
   await page.getByLabel("Brand set").selectOption("mokobara");
   await page.getByRole("button", { name: "Start verification" }).click();
   await expect(page.getByTestId("verify-progress")).toContainText("Verification finished", { timeout: 60_000 });
   await page.getByTestId("continue-to-done").click();
   await expect(page).toHaveURL(/\/done$/);
-  expect((await page.getByTestId("step-search").boundingBox())?.x).toBe(searchX);
-  expect((await page.getByTestId("step-verify").boundingBox())?.x).toBe(verifyXAtSearch);
+  const atDone = await assertStepperGeometry();
+  expect(atDone.search).toBe(atSearch.search);
+  expect(atDone.verify).toBe(atSearch.verify);
+});
+
+test("a keystroke typed just before leaving the filter box is not lost", async ({ page }, info) => {
+  const first = `mokobara luggage wf-blurflush ${info.project.name}`;
+  await createRun(page, [first, "mokobara review", "fail: broken query"]);
+  await expect(page.getByTestId("search-progress")).toContainText("Search finished");
+
+  await page.getByLabel("Search results").fill("article-3");
+  // Tab away immediately - well inside the 300ms debounce window - instead of waiting for it to fire on its own.
+  await page.keyboard.press("Tab");
+  await expect(page).toHaveURL(/[?&]q=article-3/);
+  await expect(page.getByTestId("serp-total")).toHaveText("1");
+});
+
+test("clicking the current step's own link keeps its filter (not one render stale)", async ({ page }, info) => {
+  const first = `mokobara luggage wf-selfclick-query ${info.project.name}`;
+  await createRun(page, [first, "mokobara review", "fail: broken query"]);
+  await expect(page.getByTestId("search-progress")).toContainText("Search finished");
+  await page.getByLabel("Search results").fill("article-3");
+  await expect(page).toHaveURL(/[?&]q=article-3/);
+
+  // A fresh load of the filtered URL, then clicking Search's own current-step link, must not clear the filter -
+  // the href must come from the live URL, not a step-query cache that hasn't been written yet.
+  const url = page.url();
+  await page.goto(url);
+  await expect(page.getByLabel("Search results")).toHaveValue("article-3");
+  await page.getByTestId("step-search").click();
+  await expect(page).toHaveURL(/[?&]q=article-3/);
+  await expect(page.getByLabel("Search results")).toHaveValue("article-3");
 });
