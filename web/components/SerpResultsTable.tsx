@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Clip } from "@/components/Clip";
 import { Pager } from "@/components/Pager";
 import { Input } from "@/components/ui/input";
@@ -50,13 +50,26 @@ export function SerpResultsTable({ runId, version }: { runId: string; version: n
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   }
 
+  // The debounce timer id lives in a ref only so a blur can cancel and flush it immediately - read/written only
+  // from effects and event handlers, never during render, per the "no ref access during render" rule.
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
-    const t = setTimeout(() => {
+    debounceTimer.current = setTimeout(() => {
       if (input !== query) updateParams({ q: input, page: 1 });
     }, 300);
-    return () => clearTimeout(t);
+    return () => {
+      if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [input]);
+
+  // A keystroke typed just before leaving the box must not be lost: flush the pending write immediately instead
+  // of cancelling it and snapping the box back to the last-committed URL value.
+  function flushInput() {
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    if (input !== query) updateParams({ q: input, page: 1 });
+  }
 
   useEffect(() => {
     let alive = true;
@@ -86,7 +99,7 @@ export function SerpResultsTable({ runId, version }: { runId: string; version: n
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onFocus={() => setIsFocused(true)}
-          onBlur={() => { setIsFocused(false); setInput(query); }}
+          onBlur={() => { setIsFocused(false); flushInput(); }}
           className="max-w-xs"
         />
       </div>
