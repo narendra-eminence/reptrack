@@ -8,9 +8,32 @@ import { Input } from "@/components/ui/input";
 import { api, errorMessage } from "@/lib/api";
 import { fmt } from "@/lib/format";
 import type { Page, VerifyRow } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 const LIMIT = 50;
 const text = (v: unknown) => (v === null || v === undefined ? "" : String(v));
+
+const EVIDENCE_LABEL: Record<string, string> = {
+  page: "PAGE", browser: "BROWSER", proxy: "PROXY", embed: "EMBED", serp: "SERP",
+};
+
+/** Small neutral badge for Evidence Source; SERP is visually distinct (amber) but never red - that colour is
+ * reserved for the screen's one primary action. Blank when the row has no evidence source. */
+function EvidenceBadge({ value }: { value: string }) {
+  const label = EVIDENCE_LABEL[value];
+  if (!label) return null;
+  return (
+    <span
+      data-testid="evidence-badge"
+      className={cn(
+        "inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium ring-1 ring-inset",
+        value === "serp" ? "bg-amber-50 text-amber-800 ring-amber-200" : "bg-neutral-100 text-neutral-700 ring-neutral-200",
+      )}
+    >
+      {label}
+    </span>
+  );
+}
 
 export function VerifyResultsTable({
   runId,
@@ -142,8 +165,9 @@ export function VerifyResultsTable({
       <div className="overflow-x-auto rounded-md border">
         <table className="w-full min-w-[960px] table-fixed text-sm">
           <colgroup>
-            <col className="w-[28%]" />
+            <col className="w-[26%]" />
             <col className="w-40" />
+            <col className="w-24" />
             <col />
             <col className="w-48" />
           </colgroup>
@@ -151,6 +175,7 @@ export function VerifyResultsTable({
             <tr>
               <th className="px-3 py-2 whitespace-nowrap">Link</th>
               <th className="px-3 py-2 whitespace-nowrap">Status</th>
+              <th className="px-3 py-2 whitespace-nowrap">Evidence</th>
               <th className="px-3 py-2 whitespace-nowrap">Hit sentence</th>
               <th className="px-3 py-2 whitespace-nowrap">Brands found</th>
             </tr>
@@ -164,13 +189,14 @@ export function VerifyResultsTable({
                   </a>
                 </td>
                 <td className="px-3 py-2"><Clip text={text(r.status) + (r.is_duplicate ? " (duplicate)" : "")} /></td>
+                <td className="px-3 py-2"><EvidenceBadge value={text(r.row["Evidence Source"])} /></td>
                 <td className="px-3 py-2"><Clip text={text(r.row["Hit Sentence"])} /></td>
                 <td className="px-3 py-2"><Clip text={text(r.row["Brands Found"])} /></td>
               </tr>
             ))}
             {page && page.rows.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-3 py-6 text-center text-neutral-500">No rows match.</td>
+                <td colSpan={5} className="px-3 py-6 text-center text-neutral-500">No rows match.</td>
               </tr>
             )}
           </tbody>

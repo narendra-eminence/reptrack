@@ -1,7 +1,8 @@
 export const PROVIDER_LABEL: Record<string, string> = { serpapi: "SerpAPI", dataforseo: "DataForSEO" };
 export const VERTICAL_LABEL: Record<string, string> = { web: "Web", news: "News", news_tab: "News tab" };
 export const STATUS_ORDER = [
-  "Verified", "Title only", "Weak mention", "Boilerplate only", "Brand not found", "Page unreachable", "Unsupported platform",
+  "Verified", "Title only", "Weak mention", "Boilerplate only", "Brand not found", "Search snippet match",
+  "Page unreachable", "Unsupported platform",
 ] as const;
 
 export const fmt = (n: number | null | undefined) => (n ?? 0).toLocaleString("en-IN");
