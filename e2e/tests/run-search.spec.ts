@@ -13,8 +13,8 @@ test("search runs live, lists results, exports, retries and deletes", async ({ p
   await expect(progress).toContainText("3 of 3 queries");
   await expect(progress).toContainText("1 failed");
   await expect(page.getByTestId("query-row-2")).toContainText("Failed");
-  await expect(page.getByTestId("serp-total")).toHaveText("5");
-  await expect(page.getByTestId("serp-row")).toHaveCount(5);
+  await expect(page.getByTestId("serp-total")).toHaveText("6");
+  await expect(page.getByTestId("serp-row")).toHaveCount(6);
 
   // no layout shift between the first render and the finished state
   expect((await page.getByTestId("run-header").boundingBox())?.height).toBe(headerBox?.height);
@@ -23,7 +23,7 @@ test("search runs live, lists results, exports, retries and deletes", async ({ p
   await page.getByLabel("Search results").fill("article-3");
   await expect(page.getByTestId("serp-total")).toHaveText("1");
   await page.getByLabel("Search results").fill("");
-  await expect(page.getByTestId("serp-total")).toHaveText("5"); // wait for the debounced clear before the screenshot
+  await expect(page.getByTestId("serp-total")).toHaveText("6"); // wait for the debounced clear before the screenshot
 
   const [download] = await Promise.all([
     page.waitForEvent("download"),

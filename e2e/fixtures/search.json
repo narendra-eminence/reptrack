@@ -4,7 +4,8 @@
     "mokobara luggage": [
       {"title": "Mokobara expands its luggage range", "link": "http://127.0.0.1:8200/article-1", "snippet": "Mokobara launched a new cabin trolley", "date": "May 2, 2026"},
       {"title": "Monsoon travel tips", "link": "http://127.0.0.1:8200/article-2", "snippet": "Travel gear makers reported steady demand", "date": ""},
-      {"title": "Removed page", "link": "http://127.0.0.1:8200/gone", "snippet": "", "date": ""}
+      {"title": "Removed page", "link": "http://127.0.0.1:8200/gone", "snippet": "Mokobara reported strong sales growth this quarter, per the removed report", "date": ""},
+      {"title": "Discussion thread", "link": "https://www.reddit.com/r/travel/comments/1/mokobara_cabin_bags/", "snippet": "Mokobara owners share which cabin bag holds up best on long trips", "date": ""}
     ],
     "mokobara review": [
       {"title": "Mokobara expands its luggage range", "link": "http://127.0.0.1:8200/article-1?utm_source=feed", "snippet": "Mokobara launched", "date": ""},
