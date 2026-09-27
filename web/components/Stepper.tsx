@@ -26,8 +26,8 @@ export function Stepper({
           <li key={s.key} className="flex items-center gap-3">
             {s.state === "locked" ? (
               <span data-testid={`step-${s.key}`} aria-disabled="true" className="flex items-center gap-3">
-                <StepBadge state={s.state} index={i} />
-                <StepLabel label={s.label} current={false} muted />
+                <StepBadge state={s.state} index={i} testId={`step-${s.key}-badge`} />
+                <StepLabel label={s.label} current={false} muted testId={`step-${s.key}-label`} />
               </span>
             ) : (
               <Link
@@ -43,11 +43,11 @@ export function Stepper({
                   navigate(href);
                 }}
               >
-                <StepBadge state={s.state} index={i} />
-                <StepLabel label={s.label} current={s.state === "current"} />
+                <StepBadge state={s.state} index={i} testId={`step-${s.key}-badge`} />
+                <StepLabel label={s.label} current={s.state === "current"} testId={`step-${s.key}-label`} />
               </Link>
             )}
-            {i < steps.length - 1 && <span aria-hidden className="h-px w-12 bg-neutral-200" />}
+            {i < steps.length - 1 && <span aria-hidden data-testid={`step-connector-${i}`} className="h-px w-12 bg-neutral-200" />}
           </li>
         );
       })}
@@ -58,10 +58,12 @@ export function Stepper({
 // The current step's label is font-semibold; a bold copy of the same text is a little wider than the regular
 // weight, which shifted the whole stepper by ~2px as the current step moved. An invisible bold copy stacked in
 // the same grid cell reserves that width on every step, so nothing shifts regardless of which one is current.
-function StepLabel({ label, current, muted = false }: { label: string; current: boolean; muted?: boolean }) {
+function StepLabel({ label, current, muted = false, testId }: { label: string; current: boolean; muted?: boolean; testId: string }) {
   return (
-    <span className="grid">
-      <span aria-hidden className="invisible col-start-1 row-start-1 whitespace-nowrap font-semibold">{label}</span>
+    <span className="grid" data-testid={testId}>
+      {/* Reserves the current step's bold width (and only its width) so nothing shifts as it moves - must match
+          the visible label's exact typography (text-sm), or it reserves the wrong box and misaligns both axes. */}
+      <span aria-hidden className="invisible col-start-1 row-start-1 whitespace-nowrap text-sm font-semibold">{label}</span>
       <span
         className={cn(
           "col-start-1 row-start-1 whitespace-nowrap text-sm",
@@ -75,9 +77,10 @@ function StepLabel({ label, current, muted = false }: { label: string; current: 
   );
 }
 
-function StepBadge({ state, index }: { state: StepState; index: number }) {
+function StepBadge({ state, index, testId }: { state: StepState; index: number; testId: string }) {
   return (
     <span
+      data-testid={testId}
       className={cn(
         "flex size-7 items-center justify-center rounded-full text-xs font-semibold",
         state === "done" && "bg-brand-navy text-white",
