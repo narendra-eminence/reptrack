@@ -8,19 +8,18 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { api, errorMessage } from "@/lib/api";
 import { PROVIDER_LABEL, VERTICAL_LABEL, fmt, period } from "@/lib/format";
+import { useStepNavigation } from "@/lib/useStepNavigation";
 import type { RunDetail } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 export function SearchStep({ run, refetch }: { run: RunDetail; refetch: () => Promise<void> }) {
   const [error, setError] = useState<string | null>(null);
+  const navigate = useStepNavigation();
   const active = run.active_job?.kind === "scrape" ? run.active_job : null;
   const c = run.counts;
   const finished = c.done + c.failed;
   const scrapeJob = active ?? run.last_scrape_job;
-  // Spec 7: a completed step stays visible, collapsed and read-only. Collapsed by default once a verification
-  // exists (it is then background detail, not the thing being worked on), expanded otherwise - computed once at
-  // mount, not recomputed on every refetch, so the user's own later toggle is never overridden from under them.
-  const [tablesOpen, setTablesOpen] = useState(() => run.verify_jobs.length === 0);
+  const canContinue = !active && c.serp_rows > 0;
 
   async function act(fn: () => Promise<unknown>) {
     setError(null);
@@ -54,6 +53,9 @@ export function SearchStep({ run, refetch }: { run: RunDetail; refetch: () => Pr
               Download SERP xlsx
             </a>
           )}
+          {canContinue && (
+            <Button data-testid="continue-to-verify" onClick={() => navigate(`/runs/${run.id}/verify`)}>Continue to Verify</Button>
+          )}
         </div>
       </div>
       <p className="text-sm text-neutral-600">
@@ -77,23 +79,8 @@ export function SearchStep({ run, refetch }: { run: RunDetail; refetch: () => Pr
         </p>
       </div>
       {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
-      {active ? (
-        <>
-          <QueryTable queries={run.queries} />
-          {c.serp_rows > 0 && <SerpResultsTable runId={run.id} version={c.serp_rows} />}
-        </>
-      ) : (
-        <details
-          open={tablesOpen}
-          onToggle={(e) => setTablesOpen((e.target as HTMLDetailsElement).open)}
-        >
-          <summary className="cursor-pointer text-sm text-brand-blue">Show queries and results</summary>
-          <div className="mt-3 space-y-4">
-            <QueryTable queries={run.queries} />
-            {c.serp_rows > 0 && <SerpResultsTable runId={run.id} version={c.serp_rows} />}
-          </div>
-        </details>
-      )}
+      <QueryTable queries={run.queries} />
+      {c.serp_rows > 0 && <SerpResultsTable runId={run.id} version={c.serp_rows} />}
     </section>
   );
 }

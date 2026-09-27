@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { BrandRules } from "@/components/BrandRules";
 import { Elapsed } from "@/components/Elapsed";
@@ -13,7 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { api, errorMessage } from "@/lib/api";
 import { fmt, fmtDateTime } from "@/lib/format";
-import { verifyAvailable } from "@/lib/steps";
+import { useStepNavigation } from "@/lib/useStepNavigation";
 import { cn } from "@/lib/utils";
 import type { BrandSet, RunDetail, VerifyJob } from "@/lib/types";
 
@@ -22,23 +23,17 @@ export function VerifyStep({ run, refetch }: { run: RunDetail; refetch: () => Pr
   const [selected, setSelected] = useState("");
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const navigate = useStepNavigation();
 
   useEffect(() => {
     api.brands().then((r) => setSets(r.sets)).catch((e) => setError(errorMessage(e)));
   }, []);
 
-  if (!verifyAvailable(run)) {
-    return (
-      <section aria-labelledby="verify-heading" className="space-y-2">
-        <h2 id="verify-heading" className="text-xl text-neutral-400">2. Verify</h2>
-        <p className="text-sm text-neutral-500">Available once the search has finished.</p>
-      </section>
-    );
-  }
-
   const selectedSet = sets?.find((s) => s.name === selected);
   const latest = run.verify_jobs[0];
   const pending = run.counts.pending;
+  const hasAnyVerify = run.verify_jobs.length > 0;
+  const canContinueToDone = run.verify_jobs.some((v) => v.status === "done") && !run.active_job;
 
   async function start() {
     setStarting(true);
@@ -55,7 +50,12 @@ export function VerifyStep({ run, refetch }: { run: RunDetail; refetch: () => Pr
 
   return (
     <section aria-labelledby="verify-heading" className="space-y-6">
-      <h2 id="verify-heading" className="text-xl">2. Verify</h2>
+      <div className="flex items-center justify-between">
+        <h2 id="verify-heading" className="text-xl">2. Verify</h2>
+        {canContinueToDone && (
+          <Button data-testid="continue-to-done" onClick={() => navigate(`/runs/${run.id}/done`)}>Continue to Done</Button>
+        )}
+      </div>
       <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
         <div className="space-y-3">
           <Field id="brand-set" label="Brand set" hint="Every URL is checked against exactly these rules. They are copied when verification starts.">
@@ -67,7 +67,9 @@ export function VerifyStep({ run, refetch }: { run: RunDetail; refetch: () => Pr
             </NativeSelect>
           </Field>
           <Link href="/brands" className="block text-sm text-brand-blue hover:underline">Edit brands</Link>
-          <Button disabled={!selected || !!run.active_job || starting} onClick={start}>Start verification</Button>
+          <Button variant={hasAnyVerify ? "outline" : "default"} disabled={!selected || !!run.active_job || starting} onClick={start}>
+            Start verification
+          </Button>
           {pending > 0 && (
             <p className="text-sm text-amber-800">
               {pending} {pending === 1 ? "query" : "queries"} unfinished; verifying the results collected so far.
@@ -91,8 +93,33 @@ export function VerifyStep({ run, refetch }: { run: RunDetail; refetch: () => Pr
 }
 
 function VerifyJobPanel({ run, job, liveSets, refetch }: { run: RunDetail; job: VerifyJob; liveSets: BrandSet[] | null; refetch: () => Promise<void> }) {
-  const [status, setStatus] = useState("");
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const status = searchParams.get("status") ?? "";
+  const dupsParam = searchParams.get("dups");
+  // A selected status chip hides duplicates by default, unless the viewer explicitly chose to show them.
+  const hideDuplicates = dupsParam === "hide" ? true : dupsParam === "show" ? false : !!status;
   const [cancelError, setCancelError] = useState<string | null>(null);
+
+  function setStatus(next: string) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (next) params.set("status", next);
+    else params.delete("status");
+    params.delete("dups");
+    params.delete("q");
+    params.delete("page");
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  }
+
+  function setHideDuplicates(v: boolean) {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("dups", v ? "hide" : "show");
+    params.delete("page");
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  }
   const active = run.active_job?.kind === "verify" && run.active_job.ref_id === job.id ? run.active_job : null;
   const live = liveSets?.find((s) => s.name === job.brand_set);
   const changed = liveSets !== null && JSON.stringify(live?.rules ?? null) !== JSON.stringify(job.brand_rules);
@@ -148,7 +175,8 @@ function VerifyJobPanel({ run, job, liveSets, refetch }: { run: RunDetail; job: 
           runId={run.id}
           verifyJobId={job.id}
           status={status}
-          defaultHideDuplicates={!!status}
+          hideDuplicates={hideDuplicates}
+          onHideDuplicatesChange={setHideDuplicates}
           actions={
             <a href={`/api/runs/${run.id}/verify/${job.id}/verified.xlsx`} download className={cn(buttonVariants({ variant: "outline" }))}>
               Download verified xlsx

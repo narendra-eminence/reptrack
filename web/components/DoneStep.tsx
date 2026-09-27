@@ -1,11 +1,25 @@
+import Link from "next/link";
 import { buttonVariants } from "@/components/ui/button";
 import { fmt } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { RunDetail } from "@/lib/types";
 
 export function DoneStep({ run }: { run: RunDetail }) {
-  const done = run.active_job?.kind === "verify" ? undefined : run.verify_jobs.find((v) => v.status === "done");
+  const done = run.verify_jobs.find((v) => v.status === "done");
+  const reverifying = run.active_job?.kind === "verify";
+  // stepAvailability(run).done guards this route, so a done job always exists here.
   if (!done) return null;
+  if (reverifying) {
+    return (
+      <section aria-labelledby="done-heading" className="space-y-4">
+        <h2 id="done-heading" className="text-xl">3. Done</h2>
+        <p className="text-sm text-neutral-600">
+          A new verification is running.{" "}
+          <Link href={`/runs/${run.id}/verify`} className="text-brand-blue hover:underline">View progress</Link>
+        </p>
+      </section>
+    );
+  }
   return (
     <section aria-labelledby="done-heading" className="space-y-4">
       <h2 id="done-heading" className="text-xl">3. Done</h2>

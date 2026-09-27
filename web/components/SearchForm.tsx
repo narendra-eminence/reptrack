@@ -46,7 +46,10 @@ export function SearchForm() {
     setSubmitError(null);
     try {
       const { id } = await api.createRun({ ...form, confirmed_calls: confirmedCalls ?? plan.max_calls });
-      router.push(`/runs/${id}`);
+      // Always land on Search right after creating a run, even if the fixture backend is fast enough that
+      // results already exist by the time this resolves - the /runs/[id] redirect is for returning to an
+      // existing run, not for a run just created (see workflow-routes-brief.md).
+      router.push(`/runs/${id}/search`);
     } catch (e) {
       if (e instanceof ApiError && e.status === 409 && e.body && typeof e.body === "object" && "max_calls" in e.body) {
         // The billable ceiling changed (e.g. more of the query set is now cached) since this dialog opened; show

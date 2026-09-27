@@ -1,28 +1,19 @@
 "use client";
 
-import { use } from "react";
-import { DoneStep } from "@/components/DoneStep";
-import { RunHeader } from "@/components/RunHeader";
-import { RunNotices } from "@/components/RunNotices";
-import { SearchStep } from "@/components/SearchStep";
-import { Stepper } from "@/components/Stepper";
-import { VerifyStep } from "@/components/VerifyStep";
-import { stepStates } from "@/lib/steps";
-import { useRun } from "@/lib/useRun";
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
+import { useRunContext } from "@/lib/RunContext";
+import { landingStep } from "@/lib/steps";
 
-export default function RunPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params);
-  const { run, error, refetch } = useRun(id);
-  if (error && !run) return <p role="alert" className="text-sm text-red-700">{error}</p>;
-  if (!run) return <p className="text-sm text-neutral-500">Loading run...</p>;
-  return (
-    <div className="space-y-8">
-      <RunHeader run={run} />
-      <Stepper steps={stepStates(run)} />
-      <RunNotices run={run} refetch={refetch} />
-      <SearchStep run={run} refetch={refetch} />
-      <VerifyStep run={run} refetch={refetch} />
-      <DoneStep run={run} />
-    </div>
-  );
+// Deterministic landing redirect, evaluated from persisted run data (never from anything in the URL):
+// a done verification -> /done, else any persisted SERP results -> /verify, else -> /search.
+export default function RunIndexPage() {
+  const { run } = useRunContext();
+  const router = useRouter();
+
+  useEffect(() => {
+    router.replace(`/runs/${run.id}/${landingStep(run)}`);
+  }, [run, router]);
+
+  return null;
 }
