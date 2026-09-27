@@ -158,3 +158,57 @@ h3 {
   font-family: var(--font-heading);
   color: var(--brand-navy);
 }
+
+/* Step-panel slide transition (see web/lib/useStepNavigation.ts). Only the step content region carries the
+   view-transition-name (set inline in app/runs/[id]/layout.tsx); the header and stepper stay static because
+   they are not part of the transitioned subtree. */
+::view-transition-group(step-panel) {
+  animation-duration: 260ms;
+  animation-timing-function: ease;
+}
+
+html[data-step-direction="forward"]::view-transition-old(step-panel) {
+  animation: step-slide-out-left 260ms ease both;
+}
+html[data-step-direction="forward"]::view-transition-new(step-panel) {
+  animation: step-slide-in-right 260ms ease both;
+}
+html[data-step-direction="back"]::view-transition-old(step-panel) {
+  animation: step-slide-out-right 260ms ease both;
+}
+html[data-step-direction="back"]::view-transition-new(step-panel) {
+  animation: step-slide-in-left 260ms ease both;
+}
+
+@keyframes step-slide-out-left {
+  to {
+    transform: translateX(-32px);
+    opacity: 0;
+  }
+}
+@keyframes step-slide-in-right {
+  from {
+    transform: translateX(32px);
+    opacity: 0;
+  }
+}
+@keyframes step-slide-out-right {
+  to {
+    transform: translateX(32px);
+    opacity: 0;
+  }
+}
+@keyframes step-slide-in-left {
+  from {
+    transform: translateX(-32px);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}
