@@ -4,6 +4,8 @@ import { createRun, shot } from "./helpers";
 test("verifies results with a chosen brand set and exports", async ({ page }, info) => {
   await createRun(page, [`mokobara luggage v-${info.project.name}`, "mokobara review"]);
   await expect(page.getByTestId("search-progress")).toContainText("Search finished");
+  await page.getByTestId("continue-to-verify").click();
+  await expect(page).toHaveURL(/\/verify$/);
 
   const start = page.getByRole("button", { name: "Start verification" });
   await expect(start).toBeDisabled();
@@ -32,6 +34,11 @@ test("verifies results with a chosen brand set and exports", async ({ page }, in
     page.getByRole("link", { name: "Download verified xlsx" }).first().click(),
   ]);
   expect(download.suggestedFilename()).toMatch(/_verified_\d+\.xlsx$/);
-  await expect(page.getByRole("heading", { name: "3. Done" })).toBeVisible();
   await shot(page, "run-verified", info);
+
+  await page.getByTestId("continue-to-done").click();
+  await expect(page).toHaveURL(/\/runs\/[0-9a-f]{12}\/done$/);
+  await expect(page.getByRole("heading", { name: "3. Done" })).toBeVisible();
+  await page.waitForTimeout(400); // let the ~260ms slide transition settle before the pixel-review screenshot
+  await shot(page, "run-done", info);
 });

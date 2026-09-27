@@ -6,7 +6,7 @@ export async function createRun(page: Page, queries: string[]) {
   await expect(page.getByTestId("plan-count")).toHaveText(String(queries.length));
   await page.getByRole("button", { name: "Run search" }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "Confirm and run" }).click();
-  await expect(page).toHaveURL(/\/runs\/[0-9a-f]{12}$/);
+  await expect(page).toHaveURL(/\/runs\/[0-9a-f]{12}\/search$/);
 }
 
 export async function shot(page: Page, name: string, info: TestInfo) {
