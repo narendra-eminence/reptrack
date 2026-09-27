@@ -1,5 +1,6 @@
 "use client";
 
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Clip } from "@/components/Clip";
 import { Pager } from "@/components/Pager";
@@ -12,18 +13,47 @@ const LIMIT = 50;
 const text = (v: unknown) => (v === null || v === undefined ? "" : String(v));
 
 export function SerpResultsTable({ runId, version }: { runId: string; version: number }) {
-  const [input, setInput] = useState("");
-  const [query, setQuery] = useState("");
-  const [offset, setOffset] = useState(0);
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const query = searchParams.get("q") ?? "";
+  const urlPage = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10) || 1);
+  const offset = (urlPage - 1) * LIMIT;
+
+  // The text box stays local for snappy typing; it is written to the URL (debounced) rather than being read
+  // from it on every keystroke, but is kept in sync when the URL changes from outside (back/forward, reload).
+  // Adjusted during render (React's pattern for state derived from a prop), not in an effect, so there is no
+  // extra commit showing the stale value first.
+  const [input, setInput] = useState(query);
+  const [prevQuery, setPrevQuery] = useState(query);
+  if (prevQuery !== query) {
+    setPrevQuery(query);
+    setInput(query);
+  }
+
   const [page, setPage] = useState<Page<SerpRow> | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  function updateParams(next: { q?: string; page?: number }) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (next.q !== undefined) {
+      if (next.q) params.set("q", next.q);
+      else params.delete("q");
+    }
+    if (next.page !== undefined) {
+      if (next.page > 1) params.set("page", String(next.page));
+      else params.delete("page");
+    }
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  }
+
   useEffect(() => {
     const t = setTimeout(() => {
-      setQuery(input);
-      setOffset(0);
+      if (input !== query) updateParams({ q: input, page: 1 });
     }, 300);
     return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [input]);
 
   useEffect(() => {
@@ -94,7 +124,7 @@ export function SerpResultsTable({ runId, version }: { runId: string; version: n
           </tbody>
         </table>
       </div>
-      {page && <Pager total={page.total} offset={offset} limit={LIMIT} onChange={setOffset} />}
+      {page && <Pager total={page.total} offset={offset} limit={LIMIT} onChange={(o) => updateParams({ page: o / LIMIT + 1 })} />}
     </div>
   );
 }

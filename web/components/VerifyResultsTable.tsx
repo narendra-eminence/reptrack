@@ -1,5 +1,6 @@
 "use client";
 
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { Clip } from "@/components/Clip";
 import { Pager } from "@/components/Pager";
@@ -15,37 +16,65 @@ export function VerifyResultsTable({
   runId,
   verifyJobId,
   status,
+  hideDuplicates: hideDuplicatesFromUrl,
+  onHideDuplicatesChange,
   actions,
-  defaultHideDuplicates = false,
 }: {
   runId: string;
   verifyJobId: number;
   status: string;
+  hideDuplicates: boolean;
+  onHideDuplicatesChange: (v: boolean) => void;
   actions?: ReactNode;
-  defaultHideDuplicates?: boolean;
 }) {
-  const [hideDuplicates, setHideDuplicates] = useState(defaultHideDuplicates);
-  const [input, setInput] = useState("");
-  const [query, setQuery] = useState("");
-  const [offset, setOffset] = useState(0);
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const query = searchParams.get("q") ?? "";
+  const urlPage = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10) || 1);
+  const offset = (urlPage - 1) * LIMIT;
+
+  // Adjusted during render (React's pattern for state derived from a prop), not in an effect - see
+  // SerpResultsTable for the same pattern with the same rationale.
+  const [input, setInput] = useState(query);
+  const [prevQuery, setPrevQuery] = useState(query);
+  if (prevQuery !== query) {
+    setPrevQuery(query);
+    setInput(query);
+  }
+
+  // The checkbox flips immediately (local state) instead of waiting on the URL round trip through
+  // next/navigation's router.replace, which runs as a transition and can lag a tick behind the click.
+  const [hideDuplicates, setHideDuplicates] = useState(hideDuplicatesFromUrl);
+  const [prevHideDuplicatesFromUrl, setPrevHideDuplicatesFromUrl] = useState(hideDuplicatesFromUrl);
+  if (prevHideDuplicatesFromUrl !== hideDuplicatesFromUrl) {
+    setPrevHideDuplicatesFromUrl(hideDuplicatesFromUrl);
+    setHideDuplicates(hideDuplicatesFromUrl);
+  }
+
   const [page, setPage] = useState<Page<VerifyRow> | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // A different verify job or status filter is a different result set; page 2 of the old one would otherwise
-  // show "No rows match" instead of the new set's first page. Reset during render (React's recommended pattern
-  // for adjusting state when a prop changes), not in an effect, so there is no extra commit with stale rows.
-  const [prevKey, setPrevKey] = useState({ verifyJobId, status });
-  if (prevKey.verifyJobId !== verifyJobId || prevKey.status !== status) {
-    setPrevKey({ verifyJobId, status });
-    setOffset(0);
+  function updateParams(next: { q?: string; page?: number }) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (next.q !== undefined) {
+      if (next.q) params.set("q", next.q);
+      else params.delete("q");
+    }
+    if (next.page !== undefined) {
+      if (next.page > 1) params.set("page", String(next.page));
+      else params.delete("page");
+    }
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   }
 
   useEffect(() => {
     const t = setTimeout(() => {
-      setQuery(input);
-      setOffset(0);
+      if (input !== query) updateParams({ q: input, page: 1 });
     }, 300);
     return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [input]);
 
   useEffect(() => {
@@ -79,7 +108,7 @@ export function VerifyResultsTable({
               checked={hideDuplicates}
               onChange={(e) => {
                 setHideDuplicates(e.target.checked);
-                setOffset(0);
+                onHideDuplicatesChange(e.target.checked);
               }}
             />
             Hide duplicates
@@ -125,7 +154,7 @@ export function VerifyResultsTable({
           </tbody>
         </table>
       </div>
-      {page && <Pager total={page.total} offset={offset} limit={LIMIT} onChange={setOffset} />}
+      {page && <Pager total={page.total} offset={offset} limit={LIMIT} onChange={(o) => updateParams({ page: o / LIMIT + 1 })} />}
     </div>
   );
 }
