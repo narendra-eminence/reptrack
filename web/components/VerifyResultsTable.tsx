@@ -35,12 +35,13 @@ export function VerifyResultsTable({
   const offset = (urlPage - 1) * LIMIT;
 
   // Adjusted during render (React's pattern for state derived from a prop), not in an effect - see
-  // SerpResultsTable for the same pattern with the same rationale.
+  // SerpResultsTable for the same pattern, including the focus guard, with the same rationale.
+  const [isFocused, setIsFocused] = useState(false);
   const [input, setInput] = useState(query);
   const [prevQuery, setPrevQuery] = useState(query);
   if (prevQuery !== query) {
     setPrevQuery(query);
-    setInput(query);
+    if (!isFocused) setInput(query);
   }
 
   // The checkbox flips immediately (local state) instead of waiting on the URL round trip through
@@ -113,7 +114,15 @@ export function VerifyResultsTable({
             />
             Hide duplicates
           </label>
-          <Input aria-label="Search verified rows" placeholder="Filter by any text" value={input} onChange={(e) => setInput(e.target.value)} className="w-64" />
+          <Input
+            aria-label="Search verified rows"
+            placeholder="Filter by any text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onFocus={() => setIsFocused(true)}
+            onBlur={() => { setIsFocused(false); setInput(query); }}
+            className="w-64"
+          />
         </div>
       </div>
       {error && <p role="alert" className="text-sm text-red-700">{error}</p>}

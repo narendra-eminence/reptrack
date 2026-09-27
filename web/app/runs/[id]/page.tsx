@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useRunContext } from "@/lib/RunContext";
 import { landingStep } from "@/lib/steps";
 
@@ -10,8 +10,13 @@ import { landingStep } from "@/lib/steps";
 export default function RunIndexPage() {
   const { run } = useRunContext();
   const router = useRouter();
+  // Fires once: a later SSE update changing landingStep's answer (e.g. results arriving) must not re-trigger
+  // the redirect out from under whatever page the first replace already landed on.
+  const redirected = useRef(false);
 
   useEffect(() => {
+    if (redirected.current) return;
+    redirected.current = true;
     router.replace(`/runs/${run.id}/${landingStep(run)}`);
   }, [run, router]);
 

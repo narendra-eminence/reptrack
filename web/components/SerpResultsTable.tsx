@@ -23,12 +23,14 @@ export function SerpResultsTable({ runId, version }: { runId: string; version: n
   // The text box stays local for snappy typing; it is written to the URL (debounced) rather than being read
   // from it on every keystroke, but is kept in sync when the URL changes from outside (back/forward, reload).
   // Adjusted during render (React's pattern for state derived from a prop), not in an effect, so there is no
-  // extra commit showing the stale value first.
+  // extra commit showing the stale value first - except while the box is focused, where a resync would clobber
+  // a keystroke typed while an earlier value's debounced URL write is still catching up.
+  const [isFocused, setIsFocused] = useState(false);
   const [input, setInput] = useState(query);
   const [prevQuery, setPrevQuery] = useState(query);
   if (prevQuery !== query) {
     setPrevQuery(query);
-    setInput(query);
+    if (!isFocused) setInput(query);
   }
 
   const [page, setPage] = useState<Page<SerpRow> | null>(null);
@@ -78,7 +80,15 @@ export function SerpResultsTable({ runId, version }: { runId: string; version: n
         <h3 className="text-base">
           Results <span data-testid="serp-total" className="tabular-nums text-neutral-500">{page ? fmt(page.total) : ""}</span>
         </h3>
-        <Input aria-label="Search results" placeholder="Filter by any text" value={input} onChange={(e) => setInput(e.target.value)} className="max-w-xs" />
+        <Input
+          aria-label="Search results"
+          placeholder="Filter by any text"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onFocus={() => setIsFocused(true)}
+          onBlur={() => { setIsFocused(false); setInput(query); }}
+          className="max-w-xs"
+        />
       </div>
       {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
       <div className="overflow-x-auto rounded-md border">
