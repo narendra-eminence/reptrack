@@ -23,17 +23,24 @@ export default function RunLayout({ children, params }: { children: ReactNode; p
     settleRoute();
   }, [pathname]);
 
-  // Remembers each step's own query string (filter, page, status chip, ...) for this run, so sliding away to
-  // another step and back via the stepper or a Continue button restores it - never persisted beyond this
-  // session, and never holds table data, only the small strings already sitting in the URL. Refs are only
-  // written from an effect (never during render), per the "no ref access during render" rule.
+  // Remembers each OTHER step's own query string (filter, page, status chip, ...) for this run, so sliding away
+  // to it and back via the stepper or a Continue button restores it - never persisted beyond this session, and
+  // never holds table data, only the small strings already sitting in the URL. Refs are only written from an
+  // effect (never during render), per the "no ref access during render" rule.
   const stepQueryRef = useRef<Record<StepKey, string>>({ search: "", verify: "", done: "" });
   const currentStep = currentStepFromPath(pathname);
   const searchParamsString = searchParams.toString();
   useEffect(() => {
     if (currentStep) stepQueryRef.current[currentStep] = searchParamsString;
   }, [currentStep, searchParamsString]);
-  const getStepQuery = useCallback((step: StepKey) => stepQueryRef.current[step], []);
+  // The current step's own query must come straight from the live URL, not the ref: the ref is only updated by
+  // the effect above *after* this render commits, so reading it during render for the step you're already on is
+  // one render stale - e.g. right after a fresh /search?q=x load, clicking Search's own stepper link would push
+  // the bare /search and silently drop the filter.
+  const getStepQuery = useCallback(
+    (step: StepKey) => (step === currentStep ? searchParamsString : stepQueryRef.current[step]),
+    [currentStep, searchParamsString],
+  );
 
   if (error && !run) return <p role="alert" className="text-sm text-red-700">{error}</p>;
   if (!run) return <p className="text-sm text-neutral-500">Loading run...</p>;
