@@ -3,7 +3,7 @@
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback } from "react";
 import { STEP_ORDER, currentStepFromPath } from "./steps";
-import { waitForRouteSettle } from "./routeTransition";
+import { beginNavigation, isCurrentNavigation, waitForRouteSettle } from "./routeTransition";
 
 /** Navigates between step routes, sliding the step-panel view transition left for a forward step and right for
  * a backward one. Falls back to an instant `router.push` when the View Transition API is unavailable, the user
@@ -33,13 +33,16 @@ export function useStepNavigation() {
         return;
       }
 
+      const token = beginNavigation();
       document.documentElement.dataset.stepDirection = direction;
       const transition = document.startViewTransition(() => {
         router.push(href);
         return waitForRouteSettle();
       });
       transition.finished.finally(() => {
-        delete document.documentElement.dataset.stepDirection;
+        // Only clear the attribute if no later navigation has started since - otherwise this would strip the
+        // direction a subsequent, still-running transition set for itself.
+        if (isCurrentNavigation(token)) delete document.documentElement.dataset.stepDirection;
       });
     },
     [pathname, router],

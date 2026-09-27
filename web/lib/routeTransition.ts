@@ -37,3 +37,19 @@ export function settleRoute(): void {
     resolve();
   }
 }
+
+// A navigation started while an earlier one's transition is still finishing (e.g. two quick stepper clicks)
+// must not let the earlier one's cleanup (clearing data-step-direction once ITS transition.finished settles)
+// run after the later one has already set its own direction - that would strip the attribute mid-animation and
+// the later transition would fall back to the browser's default cross-fade. Each navigate() call claims a
+// token; it may only act on document.documentElement.dataset.stepDirection while it still holds the latest one.
+let navToken = 0;
+
+export function beginNavigation(): number {
+  navToken += 1;
+  return navToken;
+}
+
+export function isCurrentNavigation(token: number): boolean {
+  return token === navToken;
+}
