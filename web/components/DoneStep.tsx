@@ -1,18 +1,21 @@
 import Link from "next/link";
 import { buttonVariants } from "@/components/ui/button";
 import { fmt } from "@/lib/format";
+import { doneAvailable } from "@/lib/steps";
 import { cn } from "@/lib/utils";
 import type { RunDetail } from "@/lib/types";
 
 export function DoneStep({ run }: { run: RunDetail }) {
-  const done = run.verify_jobs.find((v) => v.status === "done");
+  // stepAvailability(run).done (same rule as doneAvailable) guards this route, so a done job always exists here.
+  if (!doneAvailable(run)) return null;
+  const done = run.verify_jobs.find((v) => v.status === "done")!;
   const reverifying = run.active_job?.kind === "verify";
-  // stepAvailability(run).done guards this route, so a done job always exists here.
-  if (!done) return null;
   if (reverifying) {
     return (
       <section aria-labelledby="done-heading" className="space-y-4">
-        <h2 id="done-heading" className="text-xl">3. Done</h2>
+        <div className="flex min-h-8 items-center justify-between">
+          <h2 id="done-heading" className="text-xl">3. Done</h2>
+        </div>
         <p className="text-sm text-neutral-600">
           A new verification is running.{" "}
           <Link href={`/runs/${run.id}/verify`} className="text-brand-blue hover:underline">View progress</Link>
@@ -22,7 +25,9 @@ export function DoneStep({ run }: { run: RunDetail }) {
   }
   return (
     <section aria-labelledby="done-heading" className="space-y-4">
-      <h2 id="done-heading" className="text-xl">3. Done</h2>
+      <div className="flex min-h-8 items-center justify-between">
+        <h2 id="done-heading" className="text-xl">3. Done</h2>
+      </div>
       <dl className="grid max-w-xl grid-cols-[1fr_auto] gap-y-2 text-sm tabular-nums">
         <dt>Queries</dt><dd className="text-right">{fmt(run.counts.queries)}</dd>
         <dt>Search results</dt><dd className="text-right">{fmt(run.counts.serp_rows)}</dd>

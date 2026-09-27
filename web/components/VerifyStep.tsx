@@ -14,6 +14,8 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { api, errorMessage } from "@/lib/api";
 import { fmt, fmtDateTime } from "@/lib/format";
+import { useRunContext } from "@/lib/RunContext";
+import { doneAvailable, stepHref } from "@/lib/steps";
 import { useStepNavigation } from "@/lib/useStepNavigation";
 import { cn } from "@/lib/utils";
 import type { BrandSet, RunDetail, VerifyJob } from "@/lib/types";
@@ -24,6 +26,7 @@ export function VerifyStep({ run, refetch }: { run: RunDetail; refetch: () => Pr
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const navigate = useStepNavigation();
+  const { getStepQuery } = useRunContext();
 
   useEffect(() => {
     api.brands().then((r) => setSets(r.sets)).catch((e) => setError(errorMessage(e)));
@@ -32,8 +35,10 @@ export function VerifyStep({ run, refetch }: { run: RunDetail; refetch: () => Pr
   const selectedSet = sets?.find((s) => s.name === selected);
   const latest = run.verify_jobs[0];
   const pending = run.counts.pending;
-  const hasAnyVerify = run.verify_jobs.length > 0;
-  const canContinueToDone = run.verify_jobs.some((v) => v.status === "done") && !run.active_job;
+  // Controller ruling: Start verification stays the red primary action (disabled while any job is active) until
+  // a verification has actually finished; only then does Continue to Done take over as the one red button.
+  const done = doneAvailable(run);
+  const canContinueToDone = done && !run.active_job;
 
   async function start() {
     setStarting(true);
@@ -50,10 +55,16 @@ export function VerifyStep({ run, refetch }: { run: RunDetail; refetch: () => Pr
 
   return (
     <section aria-labelledby="verify-heading" className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex min-h-8 items-center justify-between">
         <h2 id="verify-heading" className="text-xl">2. Verify</h2>
         {canContinueToDone && (
-          <Button data-testid="continue-to-done" onClick={() => navigate(`/runs/${run.id}/done`)}>Continue to Done</Button>
+          <Button
+            data-testid="continue-to-done"
+            data-primary-action="true"
+            onClick={() => navigate(stepHref(run.id, "done", getStepQuery("done")))}
+          >
+            Continue to Done
+          </Button>
         )}
       </div>
       <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
@@ -67,7 +78,12 @@ export function VerifyStep({ run, refetch }: { run: RunDetail; refetch: () => Pr
             </NativeSelect>
           </Field>
           <Link href="/brands" className="block text-sm text-brand-blue hover:underline">Edit brands</Link>
-          <Button variant={hasAnyVerify ? "outline" : "default"} disabled={!selected || !!run.active_job || starting} onClick={start}>
+          <Button
+            variant={done ? "outline" : "default"}
+            data-primary-action={done ? undefined : "true"}
+            disabled={!selected || !!run.active_job || starting}
+            onClick={start}
+          >
             Start verification
           </Button>
           {pending > 0 && (

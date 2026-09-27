@@ -8,6 +8,8 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { api, errorMessage } from "@/lib/api";
 import { PROVIDER_LABEL, VERTICAL_LABEL, fmt, period } from "@/lib/format";
+import { useRunContext } from "@/lib/RunContext";
+import { stepHref } from "@/lib/steps";
 import { useStepNavigation } from "@/lib/useStepNavigation";
 import type { RunDetail } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -15,6 +17,7 @@ import { cn } from "@/lib/utils";
 export function SearchStep({ run, refetch }: { run: RunDetail; refetch: () => Promise<void> }) {
   const [error, setError] = useState<string | null>(null);
   const navigate = useStepNavigation();
+  const { getStepQuery } = useRunContext();
   const active = run.active_job?.kind === "scrape" ? run.active_job : null;
   const c = run.counts;
   const finished = c.done + c.failed;
@@ -37,7 +40,7 @@ export function SearchStep({ run, refetch }: { run: RunDetail; refetch: () => Pr
 
   return (
     <section aria-labelledby="search-heading" className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex min-h-8 items-center justify-between">
         <h2 id="search-heading" className="text-xl">1. Search</h2>
         <div className="flex gap-2">
           {active && (
@@ -54,7 +57,13 @@ export function SearchStep({ run, refetch }: { run: RunDetail; refetch: () => Pr
             </a>
           )}
           {canContinue && (
-            <Button data-testid="continue-to-verify" onClick={() => navigate(`/runs/${run.id}/verify`)}>Continue to Verify</Button>
+            <Button
+              data-testid="continue-to-verify"
+              data-primary-action="true"
+              onClick={() => navigate(stepHref(run.id, "verify", getStepQuery("verify")))}
+            >
+              Continue to Verify
+            </Button>
           )}
         </div>
       </div>
