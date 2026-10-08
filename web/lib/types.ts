@@ -119,9 +119,11 @@ export interface Page<T> { total: number; offset: number; limit: number; rows: T
 export type SerpRow = Record<string, Cell>;
 export interface VerifyRow { seq: number; status: string | null; is_duplicate: boolean; row: Record<string, Cell> }
 export interface TryResult {
-  hits: { brand: string; offset: number; snippet: string; text: string; before: string; after: string }[];
+  hits: { brand: string; offset: number; snippet: string; text: string; before: string; after: string;
+    cut_before: boolean; cut_after: boolean }[];
   excluded: {
     brand: string; offset: number; text: string; reason: string; snippet: string; before: string; after: string;
+    cut_before: boolean; cut_after: boolean;
   }[];
 }
 export type RunEvent =
