@@ -10,7 +10,9 @@ test("verifies results with a chosen brand set and exports", async ({ page }, in
   const start = page.getByRole("button", { name: "Start verification" });
   await expect(start).toBeDisabled();
   await page.getByLabel("Brand set").selectOption("mokobara");
-  await expect(page.getByText("Mokobara|MOKOBARA|[#@]mokobara\\w*")).toBeVisible(); // the rules are shown before starting
+  await expect(page.getByText("Written by hand before the form existed")).toBeVisible(); // a plain note, never the regex
+  const body = await page.locator("body").innerText();
+  for (const leak of ["(?:", "\\w", "[#@]"]) expect(body).not.toContain(leak);
   await start.click();
 
   const progress = page.getByTestId("verify-progress");

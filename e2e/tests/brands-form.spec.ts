@@ -101,6 +101,20 @@ test("create a set with people and test sentences, save, reload, add a brand, ve
   await expect(page.getByTestId("search-progress")).toContainText("Search finished");
   await page.getByTestId("continue-to-verify").click();
   await expect(page.getByLabel("Brand set").locator("option", { hasText: name })).toHaveCount(1);
+  await page.getByLabel("Brand set").selectOption(name);
+  const summary = page.getByTestId("brand-summary");
+  await expect(summary).toContainText("Zeta");
+  await expect(summary).toContainText("Indian luggage maker");
+  await expect(summary).toContainText("Other names: Zeta Industries");
+  await expect(summary).toContainText("Hashtags: #zetabags");
+  await expect(summary).toContainText("Confirmed by: luggage, trolley, bag");
+  await expect(summary).toContainText("Not when after: browser");
+  await expect(summary).toContainText("Not in the same sentence as: Kruger");
+  await expect(summary).toContainText("People: Jo Bloggs");
+  const text = await summary.innerText();
+  for (const leak of ["(?:", "\\w", "[#@]"]) expect(text).not.toContain(leak);
+  await expect.poll(() => page.evaluate(() => document.getAnimations().length)).toBe(0);
+  await shot(page, "verify-brand-summary", info);
 
   await page.goto("/brands");
   await setButton(page, name).click();

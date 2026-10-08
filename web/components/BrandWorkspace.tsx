@@ -2,6 +2,7 @@
 
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { BrandProfileForm } from "@/components/BrandProfileForm";
+import { HAND_WRITTEN_NOTE } from "@/components/BrandSummary";
 import { DeleteSetDialog } from "@/components/DeleteSetDialog";
 import { Button } from "@/components/ui/button";
 import { api, errorMessage } from "@/lib/api";
@@ -36,7 +37,7 @@ function HandWrittenSet({ name, onDeleted }: { name: string; onDeleted: () => vo
     <section className="space-y-4">
       <h2 className="text-xl break-words">{name}</h2>
       <p className="max-w-prose text-sm text-neutral-600">
-        Written by hand before the form existed. It still works for verification. To change it, create it again with the form.
+        {HAND_WRITTEN_NOTE}
       </p>
       <Button variant="outline" onClick={() => setOpen(true)}>Delete set</Button>
       {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
