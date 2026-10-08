@@ -12,11 +12,11 @@ function Highlighted({ e }: {
 }) {
   return (
     <>
-      {e.cut_before && "… "}
-      {e.before && `${e.before} `}
+      {e.cut_before && (/^\s/.test(e.before) ? "…" : "… ")}
+      {e.before}
       <mark className="rounded-sm bg-amber-100 px-0.5 text-inherit">{e.text}</mark>
-      {e.after && ` ${e.after}`}
-      {e.cut_after && " …"}
+      {e.after}
+      {e.cut_after && (/\s$/.test(e.after) ? "…" : " …")}
     </>
   );
 }
