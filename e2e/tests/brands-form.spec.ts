@@ -1,55 +1,94 @@
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import { createRun, shot } from "./helpers";
 
-async function addTag(page: import("@playwright/test").Page, label: string, value: string) {
+async function addTag(page: Page, label: string, value: string) {
   await page.getByLabel(label, { exact: true }).fill(value);
   await page.getByLabel(label, { exact: true }).press("Enter");
 }
 
-test("create, try, save, reload and edit a brand set from the simple form", async ({ page }, info) => {
+async function addTest(page: Page, brand: number, text: string, expectation: "Match" | "Not a match") {
+  await page.getByLabel(`Brand ${brand} new test sentence`, { exact: true }).fill(text);
+  await page.getByLabel(`Brand ${brand} new test expectation`, { exact: true }).selectOption({ label: expectation });
+  await page.getByRole("region", { name: `Brand ${brand} test configuration` }).getByRole("button", { name: "Add", exact: true }).click();
+}
+
+const testRow = (page: Page, brand: number, text: string) =>
+  page.getByTestId(`tests-brand-${brand}`).getByRole("listitem").filter({ hasText: text });
+
+const results = (page: Page, brand: number) => page.getByTestId(`tests-brand-${brand}`).getByTestId("test-result");
+
+const setButton = (page: Page, name: string) => page.getByRole("button", { name: new RegExp(`^${name}`) });
+
+test("create a set with people and test sentences, save, reload, add a brand, verify and delete", async ({ page }, info) => {
   const name = `zeta-${info.project.name}`;
   await page.goto("/brands");
   await page.getByRole("button", { name: "New set", exact: true }).click();
   await page.getByLabel("Set name").fill(name);
   await page.getByLabel("Brand 1 name", { exact: true }).fill("Zeta");
-  await page.getByLabel("Brand 1 short name is also an everyday word").check();
-  await page.getByLabel("Brand 1 everyday word").fill("Zeta");
-  await expect(page.getByText("so every use of the word counts")).toBeVisible(); // preview warning: nothing confirms the word yet
-  await addTag(page, "Brand 1 names that always mean this brand", "Zeta Industries");
+  await page.getByLabel("Brand 1 description", { exact: true }).fill("Indian luggage maker");
+  await addTag(page, "Brand 1 aliases", "Zeta Industries");
+  await addTag(page, "Brand 1 hashtags", "zetabags");
+  await expect(page.getByLabel("Brand 1 common word no")).toBeChecked();
+  await expect(page.getByLabel("Brand 1 confirming words")).toHaveCount(0);
+  await page.getByLabel("Brand 1 common word yes").check();
   await addTag(page, "Brand 1 confirming words", "luggage");
-  await addTag(page, "Brand 1 not followed by", "browser");
-  await expect(page.getByText("so every use of the word counts")).toHaveCount(0);
+  await addTag(page, "Brand 1 not after", "browser");
+  await addTag(page, "Brand 1 not nearby", "Kruger");
+  await page.getByRole("button", { name: "Add person" }).click();
+  await page.getByLabel("Brand 1 person 1 name", { exact: true }).fill("Jo Bloggs");
 
-  await page.getByLabel("Sample text").fill("Zeta Industries rose. Open it in Zeta browser. Zeta luggage is light.");
-  await page.getByRole("button", { name: "Try rules" }).click();
-  await expect(page.getByTestId("try-hits").getByRole("listitem")).toHaveCount(2);
-  await expect(page.getByTestId("try-excluded")).toContainText("followed by browser");
-  await expect(page.getByTestId("try-excluded")).not.toContainText("Not counted:");
-  await expect(page.getByTestId("try-hits").getByRole("listitem").first().locator("mark")).toHaveText("Zeta Industries");
-  await expect(page.getByTestId("try-excluded")).not.toContainText("(?i:");
+  await addTest(page, 1, "Zeta Industries shares rose today", "Match");
+  await addTest(page, 1, "Open it in Zeta browser", "Not a match");
+  await addTest(page, 1, "We went to Zeta near Kruger", "Not a match");
+  await addTest(page, 1, "Zeta trolley sale", "Match");
+  await expect(page.getByTestId("tests-brand-1").getByRole("listitem")).toHaveCount(4);
+  await expect(results(page, 1).filter({ hasText: "Passes" })).toHaveCount(3);
+  await expect(testRow(page, 1, "Zeta trolley sale").getByTestId("test-result")).toHaveText("Fails");
+  await expect(testRow(page, 1, "Zeta Industries shares rose today").locator("mark").first()).toHaveText("Zeta Industries");
+  await expect(testRow(page, 1, "Open it in Zeta browser")).toContainText(" - ");
+  await expect(testRow(page, 1, "Zeta trolley sale")).toContainText("no confirming word nearby");
 
-  await page.getByRole("button", { name: "Show generated rules" }).click();
-  await expect(page.getByTestId("generated-rules")).toContainText("Zeta");
+  await addTag(page, "Brand 1 confirming words", "trolley");
+  await expect(results(page, 1).filter({ hasText: "Passes" })).toHaveCount(4);
 
   await page.getByRole("button", { name: "Save set" }).click();
   await expect(page.getByRole("status")).toContainText("Saved");
+
+  await page.reload();
+  await expect(setButton(page, name)).toContainText("Form");
+  await setButton(page, name).click();
+  await expect(page.getByLabel("Brand 1 name", { exact: true })).toHaveValue("Zeta");
+  await expect(page.getByLabel("Brand 1 description", { exact: true })).toHaveValue("Indian luggage maker");
+  await expect(page.getByLabel("Brand 1 common word yes")).toBeChecked();
+  await expect(page.getByRole("button", { name: "Remove Zeta Industries" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Remove zetabags" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Remove browser" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Remove Kruger" })).toBeVisible();
+  await expect(page.getByLabel("Brand 1 person 1 name", { exact: true })).toHaveValue("Jo Bloggs");
+  await expect(page.getByTestId("tests-brand-1").getByRole("listitem")).toHaveCount(4);
+  await expect(results(page, 1).filter({ hasText: "Passes" })).toHaveCount(4);
+
+  await page.getByRole("button", { name: "Add another brand" }).click();
+  await page.getByLabel("Brand 2 name", { exact: true }).fill("Geniux");
+  await page.getByLabel("Brand 2 common word yes").check();
+  await addTag(page, "Brand 2 confirming words", "luggage");
+  await addTest(page, 2, "Geniux luggage is light", "Match");
+  await expect(results(page, 2)).toHaveText(["Passes"]);
+  await addTest(page, 1, "Geniux luggage is light", "Match");
+  const geniuxUnderZeta = testRow(page, 1, "Geniux luggage is light");
+  await expect(geniuxUnderZeta.getByTestId("test-result")).toHaveText("Fails");
+  await expect(geniuxUnderZeta).toContainText("Counted for Geniux");
+
+  await page.getByRole("button", { name: "Save set" }).click();
+  await expect(page.getByRole("status")).toContainText("Saved");
+  await expect(page.getByRole("status")).toContainText("1 test sentence");
   await shot(page, "brands-form", info);
 
   const original = page.viewportSize() ?? { width: 1280, height: 800 };
   await page.setViewportSize({ width: 400, height: 900 });
-  await shot(page, "brands-form-narrow", info);
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await shot(page, "brands-form-narrow", info);
   await page.setViewportSize(original);
-
-  await page.reload();
-  const setButton = page.getByRole("button", { name: new RegExp(`^${name}`) });
-  await expect(setButton).toContainText("Form");
-  await setButton.click();
-  await expect(page.getByLabel("Brand 1 name", { exact: true })).toHaveValue("Zeta");
-  await expect(page.getByRole("button", { name: "Remove browser" })).toBeVisible();
-  await addTag(page, "Brand 1 confirming words", "trolley");
-  await page.getByRole("button", { name: "Save set" }).click();
-  await expect(page.getByRole("status")).toContainText("Saved");
 
   // The set is offered for verification like any other.
   await createRun(page, [`zeta luggage f-${info.project.name}`]);
@@ -58,130 +97,56 @@ test("create, try, save, reload and edit a brand set from the simple form", asyn
   await expect(page.getByLabel("Brand set").locator("option", { hasText: name })).toHaveCount(1);
 
   await page.goto("/brands");
-  await page.getByRole("button", { name: new RegExp(`^${name}`) }).click();
+  await setButton(page, name).click();
   await page.getByRole("button", { name: "Delete set" }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "Delete" }).click();
-  await expect(page.getByRole("button", { name: new RegExp(`^${name}`) })).toHaveCount(0);
+  await expect(setButton(page, name)).toHaveCount(0);
 });
 
-test("switching a form set to advanced editing keeps its rules", async ({ page }, info) => {
+test("switching common word back to No clears the hidden fields so the set saves", async ({ page }, info) => {
   const name = `eta-${info.project.name}`;
   await page.goto("/brands");
   await page.getByRole("button", { name: "New set", exact: true }).click();
   await page.getByLabel("Set name").fill(name);
   await page.getByLabel("Brand 1 name", { exact: true }).fill("Eta");
-  await addTag(page, "Brand 1 names that always mean this brand", "Eta Labs");
+  await page.getByLabel("Brand 1 common word yes").check();
+  await addTag(page, "Brand 1 confirming words", "x");
+  await addTag(page, "Brand 1 phrases to ignore", "Eta Carinae");
+  await page.getByLabel("Brand 1 common word no").check();
+  await expect(page.getByLabel("Brand 1 confirming words")).toHaveCount(0);
+  await page.getByLabel("Brand 1 common word yes").check();
+  await expect(page.getByRole("button", { name: "Remove x" })).toHaveCount(0); // the values were cleared, not just hidden
+  await page.getByLabel("Brand 1 common word no").check();
   await page.getByRole("button", { name: "Save set" }).click();
   await expect(page.getByRole("status")).toContainText("Saved");
-  await page.getByRole("button", { name: "Switch to advanced editing" }).click();
-  await page.getByRole("alertdialog").getByRole("button", { name: "Switch" }).click();
-  await expect(page.getByLabel("Rule 1 pattern")).toHaveValue(/Eta/);
-  await expect(page.getByRole("button", { name, exact: true })).not.toContainText("Form");
+  await expect(page.getByRole("alert").filter({ hasText: /\S/ })).toHaveCount(0); // Next.js keeps an empty route announcer alert
 });
 
-test("the form refuses a raw set's name", async ({ page }) => {
+test("the form refuses a hand-written set's name", async ({ page }) => {
   await page.goto("/brands");
   await page.getByRole("button", { name: "New set", exact: true }).click();
   await page.getByLabel("Set name").fill("mokobara");
   await page.getByLabel("Brand 1 name", { exact: true }).fill("Mokobara");
-  await addTag(page, "Brand 1 names that always mean this brand", "Mokobara");
   await page.getByRole("button", { name: "Save set" }).click();
-  await expect(page.getByRole("alert").filter({ hasText: "already exists" })).toBeVisible();
+  await expect(page.getByRole("alert").filter({ hasText: /already exists|hand-written/ })).toBeVisible();
 });
 
-test("Suggest offers chips that are only added when clicked", async ({ page }, info) => {
-  await page.route("**/api/health", async (route) => {
-    const res = await route.fetch();
-    await route.fulfill({ response: res, json: { ...(await res.json()), suggest_available: true } });
-  });
-  await page.route("**/api/brand-profiles/suggest", (route) =>
-    route.fulfill({
-      json: {
-        dropped: 0,
-        suggestion: {
-          always: ["Theta Industries"],
-          handles: ["thetabags"],
-          everyday_word: {
-            word: "Theta", exact_case: true, closeness: "close", confirm: ["luggage", "trolley"],
-            not_followed_by: ["function"], not_preceded_by: [], not_in_sentence_with: [], ignore_phrases: [],
-          },
-          people: [{ name: "Ann Example", common: true }],
-          notes: "Collides with the Greek letter.",
-        },
-      },
-    }),
-  );
+test("no rule pattern is shown anywhere on the form", async ({ page }) => {
   await page.goto("/brands");
   await page.getByRole("button", { name: "New set", exact: true }).click();
+  await page.getByLabel("Set name").fill("theta-regex");
   await page.getByLabel("Brand 1 name", { exact: true }).fill("Theta");
-  await page.getByLabel("Brand 1 description").fill("Luggage maker");
-  await page.getByRole("button", { name: "Suggest" }).click();
-  await expect(page.getByText("Collides with the Greek letter.")).toBeVisible();
-
-  // Nothing is added until clicked.
-  await expect(page.getByRole("button", { name: "Remove Theta Industries" })).toHaveCount(0);
-  await page.getByRole("button", { name: "Add Theta Industries" }).click();
-  await expect(page.getByRole("button", { name: "Remove Theta Industries" })).toBeVisible();
-
-  // The everyday-word suggestion turns the section on and its chips appear.
-  await page.getByRole("button", { name: "Use everyday word Theta" }).click();
-  await expect(page.getByLabel("Brand 1 everyday word")).toHaveValue("Theta");
-  await page.getByRole("button", { name: "Add all confirming words" }).click();
-  await expect(page.getByRole("button", { name: "Remove trolley" })).toBeVisible();
-
-  await expect(page.getByText("verify - from AI memory")).toBeVisible();
-  await shot(page, "brands-suggest", info);
-  await page.getByRole("button", { name: "Add Ann Example" }).click();
-  await expect(page.getByLabel("Person 1 name")).toHaveValue("Ann Example");
-  await expect(page.getByLabel("Person 1 common name")).toBeChecked();
-});
-
-test("Suggest is disabled without an API key", async ({ page }) => {
-  await page.goto("/brands");
-  await page.getByRole("button", { name: "New set", exact: true }).click();
-  await page.getByLabel("Brand 1 name", { exact: true }).fill("Theta");
-  await expect(page.getByRole("button", { name: "Suggest" })).toBeDisabled();
-  await expect(page.getByText("Suggest needs ANTHROPIC_API_KEY")).toBeVisible();
-});
-
-async function threeBrandsWithSuggest(page: import("@playwright/test").Page) {
-  await page.route("**/api/health", async (route) => {
-    const res = await route.fetch();
-    await route.fulfill({ response: res, json: { ...(await res.json()), suggest_available: true } });
-  });
-  await page.route("**/api/brand-profiles/suggest", async (route) => {
-    const { brand_name } = route.request().postDataJSON();
-    if (brand_name === "Beta") await new Promise((r) => setTimeout(r, 800));
-    await route.fulfill({
-      json: { dropped: 0, suggestion: { always: [], handles: [], everyday_word: null, people: [], notes: `Note for ${brand_name}.` } },
-    });
-  });
-  await page.goto("/brands");
-  await page.getByRole("button", { name: "New set", exact: true }).click();
-  await page.getByLabel("Brand 1 name", { exact: true }).fill("Alpha");
-  for (const [n, name] of [[2, "Beta"], [3, "Gamma"]] as const) {
-    await page.getByRole("button", { name: "Add brand", exact: true }).click();
-    await page.getByLabel(`Brand ${n} name`, { exact: true }).fill(name);
-  }
-  return page.getByRole("listitem").filter({ has: page.getByRole("button", { name: "Suggest" }) });
-}
-
-test("a settled Suggest result stays on its card when an earlier card is removed", async ({ page }) => {
-  const cards = await threeBrandsWithSuggest(page);
-  await cards.nth(1).getByRole("button", { name: "Suggest" }).click();
-  await expect(cards.nth(1).getByText("Note for Beta.")).toBeVisible();
-  await page.getByRole("button", { name: "Remove brand" }).first().click();
-  await expect(page.getByLabel("Brand 1 name", { exact: true })).toHaveValue("Beta");
-  await expect(cards.nth(0).getByText("Note for Beta.")).toBeVisible();
-  await expect(cards.nth(1).getByText("Note for Beta.")).toHaveCount(0);
-});
-
-test("an in-flight Suggest result lands on its card when an earlier card is removed", async ({ page }) => {
-  const cards = await threeBrandsWithSuggest(page);
-  await cards.nth(1).getByRole("button", { name: "Suggest" }).click();
-  await page.getByRole("button", { name: "Remove brand" }).first().click(); // while Beta is pending
-  await expect(page.getByLabel("Brand 1 name", { exact: true })).toHaveValue("Beta");
-  await expect(cards.nth(0).getByText("Note for Beta.")).toBeVisible();
-  await expect(cards.nth(1).getByText("Note for Beta.")).toHaveCount(0);
-  await expect(cards.nth(0).getByRole("button", { name: "Suggest" })).toBeEnabled();
+  await addTag(page, "Brand 1 aliases", "Theta Labs");
+  await addTag(page, "Brand 1 hashtags", "thetabags");
+  await addTag(page, "Brand 1 handles", "thetalabs");
+  await page.getByLabel("Brand 1 common word yes").check();
+  await addTag(page, "Brand 1 confirming words", "luggage");
+  await addTag(page, "Brand 1 not before", "Greek");
+  await page.getByRole("button", { name: "Add person" }).click();
+  await page.getByLabel("Brand 1 person 1 name", { exact: true }).fill("Ann Example");
+  await page.getByLabel("Brand 1 person 1 only when brand nearby", { exact: true }).check();
+  await addTest(page, 1, "Greek Theta and #thetabags", "Match");
+  await expect(results(page, 1)).toHaveText(["Passes"]);
+  const body = await page.locator("body").innerText();
+  for (const bit of ["(?:", "\\w", "[#@]"]) expect(body).not.toContain(bit);
 });

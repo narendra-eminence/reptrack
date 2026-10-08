@@ -28,6 +28,13 @@ brands:
   other:
     - name: Other Brand
       pattern: 'Other Brand'
+  # One hand-written set per Playwright project, so each project can delete its own.
+  other-desktop-1280:
+    - name: Other Brand
+      pattern: 'Other Brand'
+  other-desktop-1920:
+    - name: Other Brand
+      pattern: 'Other Brand'
   mokobara:
     - name: Mokobara
       pattern: 'Mokobara|MOKOBARA|[#@]mokobara\w*'

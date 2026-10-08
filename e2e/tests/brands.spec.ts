@@ -1,41 +1,38 @@
 import { expect, test } from "@playwright/test";
 import { shot } from "./helpers";
 
-test("create, try, validate, save and delete a brand set", async ({ page }, info) => {
-  const name = `acme-${info.project.name}`;
+const REGEX_BITS = ["(?:", "\\w", "[#@]"];
+
+test("a hand-written set is read-only, shows no rules, and can be deleted", async ({ page }, info) => {
   await page.goto("/brands");
   await expect(page.getByRole("heading", { name: "Brand sets", level: 1 })).toBeVisible();
-  await page.getByRole("button", { name: "New raw set" }).click();
-  await page.getByLabel("Set name").fill(name);
-  await page.getByLabel("Rule 1 name").fill("Acme");
-  await page.getByLabel("Rule 1 pattern").fill("Acme");
-  await page.getByLabel("Rule 1 context window").fill("20");
-  await page.getByLabel("Rule 1 context words").fill("luggage");
-  await page.getByLabel("Rule 1 exclusions").fill("Acme Corp");
+  await expect(page.getByRole("button", { name: "New raw set" })).toHaveCount(0);
 
-  await page.getByLabel("Sample text").fill(
-    "Acme luggage is sturdy. Our friends at Acme Corp make anvils for cartoon coyotes everywhere. Then Acme rocks.",
-  );
-  await page.getByRole("button", { name: "Try rules" }).click();
-  await expect(page.getByTestId("try-hits").getByRole("listitem")).toHaveCount(1);
-  await expect(page.getByTestId("try-excluded")).toContainText("excluded by");
-  await expect(page.getByTestId("try-excluded")).toContainText("no context word");
+  const moko = page.getByRole("button", { name: /^mokobara/ });
+  await expect(moko).toContainText("Hand-written");
+  await moko.click();
+  await expect(page.getByRole("heading", { name: "mokobara" })).toBeVisible();
+  await expect(
+    page.getByText(
+      "Written by hand before the form existed. It still works for verification. To change it, create it again with the form.",
+    ),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Delete set" })).toBeVisible();
+  await expect(page.getByRole("textbox")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Save set" })).toHaveCount(0);
+  const body = await page.locator("body").innerText();
+  for (const bit of REGEX_BITS) expect(body).not.toContain(bit);
+  await shot(page, "brands-handwritten", info);
 
-  await page.getByLabel("Rule 1 pattern").fill("Ac(me");
-  await page.getByRole("button", { name: "Save set" }).click();
-  await expect(page.getByRole("alert").filter({ hasText: "rule 1 ('Acme')" })).toContainText("pattern");
-
-  await page.getByLabel("Rule 1 pattern").fill("Acme");
-  await page.getByRole("button", { name: "Save set" }).click();
-  await expect(page.getByRole("status")).toContainText("Saved");
-  await expect(page.getByRole("button", { name, exact: true })).not.toContainText("Form");
-  await shot(page, "brands", info);
-
-  await page.reload();
-  await page.getByRole("button", { name, exact: true }).click();
-  await expect(page.getByLabel("Rule 1 exclusions")).toHaveValue("Acme Corp");
-
+  // Each Playwright project deletes its own copy of the hand-written "other" set (the fixture config is shared by both).
+  const name = `other-${info.project.name}`;
+  const other = page.getByRole("button", { name: new RegExp(`^${name}`) });
+  await other.click();
+  await expect(page.getByRole("heading", { name })).toBeVisible();
   await page.getByRole("button", { name: "Delete set" }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "Delete" }).click();
-  await expect(page.getByRole("button", { name, exact: true })).toHaveCount(0);
+  await expect(other).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByRole("button", { name: /^mokobara/ })).toBeVisible();
+  await expect(other).toHaveCount(0);
 });
