@@ -1,5 +1,6 @@
 import type {
-  BrandRule, BrandSet, Health, Options, Page, Plan, RunDetail, RunListItem, SearchInput, SerpRow, TryResult, VerifyRow,
+  BrandProfile, BrandRule, BrandSet, Health, Options, Page, Plan, ProfileWarning, RunDetail, RunListItem, SearchInput,
+  SerpRow, Suggestion, TryResult, VerifyRow,
 } from "./types";
 
 const DOWN = "Backend not reachable. Start it with `make dev` in the repscore-pipeline folder.";
@@ -69,6 +70,19 @@ export const api = {
   deleteBrand: (name: string) =>
     request<{ deleted: string; backup: string }>(`/api/brands/${encodeURIComponent(name)}`, { method: "DELETE" }),
   testBrand: (body: { text: string; rules?: BrandRule[]; set?: string }) => post<TryResult>("/api/brands/test", body),
+  brandProfile: (name: string) => request<{ profile: BrandProfile }>(`/api/brand-profiles/${encodeURIComponent(name)}`),
+  saveBrandProfile: (name: string, profile: BrandProfile, create = false) =>
+    request<{ name: string; backup: string; warnings: ProfileWarning[] }>(`/api/brand-profiles/${encodeURIComponent(name)}`, {
+      method: "PUT",
+      body: JSON.stringify({ profile, create }),
+    }),
+  previewBrandProfile: (profile: BrandProfile) =>
+    post<{ rules: BrandRule[]; warnings: ProfileWarning[] }>("/api/brand-profiles/preview", { profile }),
+  testBrandProfile: (profile: BrandProfile, text: string) => post<TryResult>("/api/brand-profiles/test", { profile, text }),
+  suggestBrandProfile: (brandName: string, description: string) =>
+    post<{ suggestion: Suggestion; dropped: number }>("/api/brand-profiles/suggest", { brand_name: brandName, description }),
+  detachBrandProfile: (name: string) =>
+    request<{ name: string; backup: string }>(`/api/brand-profiles/${encodeURIComponent(name)}/profile`, { method: "DELETE" }),
 };
 
 export function errorMessage(e: unknown): string {

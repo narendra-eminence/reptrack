@@ -12,6 +12,7 @@ export interface Health {
   verifier_config_error: string | null;
   keys: Record<Provider, string | null>;
   chromium: boolean;
+  suggest_available: boolean;
 }
 export interface SearchInput { queries: string; provider: Provider; vertical: Vertical; pages: string; start: string; end: string }
 export interface Plan { queries: string[]; count: number; pages: number; max_calls: number; cached_calls: number }
@@ -45,7 +46,29 @@ export interface BrandRule {
   case_sensitive: boolean;
   context_window: number;
 }
-export interface BrandSet { name: string; rules: BrandRule[] }
+export interface BrandSet { name: string; rules: BrandRule[]; managed: boolean; stale: boolean }
+export type Closeness = "close" | "nearby" | "paragraph";
+export interface EverydayWord {
+  word: string;
+  exact_case: boolean;
+  closeness: Closeness;
+  confirm: string[];
+  not_followed_by: string[];
+  not_preceded_by: string[];
+  not_in_sentence_with: string[];
+  ignore_phrases: string[];
+}
+export interface ProfileBrand { name: string; always: string[]; handles: string[]; everyday_word: EverydayWord | null }
+export interface Person { name: string; common: boolean }
+export interface BrandProfile { brands: ProfileBrand[]; people: Person[] }
+export interface ProfileWarning { brand: number | null; field: string; message: string }
+export interface Suggestion {
+  always: string[];
+  handles: string[];
+  everyday_word: EverydayWord | null;
+  people: Person[];
+  notes: string;
+}
 export interface VerifyJob {
   id: number;
   brand_set: string;
