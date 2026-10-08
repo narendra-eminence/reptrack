@@ -1,24 +1,24 @@
+import pytest
 from conftest import FakeSearch, make_client
 
 PROFILE = {
     "brands": [
         {
             "name": "Zeta",
-            "always": ["Zeta Industries"],
+            "description": "",
+            "aliases": ["Zeta Industries"],
+            "hashtags": [],
             "handles": [],
-            "everyday_word": {
-                "word": "Zeta",
-                "exact_case": True,
-                "closeness": "close",
-                "confirm": ["luggage"],
-                "not_followed_by": ["Corp"],
-                "not_preceded_by": [],
-                "not_in_sentence_with": [],
-                "ignore_phrases": [],
-            },
+            "common_word": True,
+            "confirming_words": ["luggage"],
+            "exclusions": {"followed_by": ["Corp"], "preceded_by": [], "nearby": [], "phrases": []},
+            "people": [{"name": "Jo Bloggs", "require_brand_nearby": False}],
+            "tests": [
+                {"text": "Zeta Industries rose", "expect": "match"},
+                {"text": "Zeta Corp makes anvils", "expect": "no_match"},
+            ],
         }
-    ],
-    "people": [],
+    ]
 }
 
 
@@ -26,76 +26,80 @@ def test_create_load_list_and_edit_a_form_set(settings):
     with make_client(settings, search_one=FakeSearch()) as c:
         r = c.put("/api/brand-profiles/zeta", json={"profile": PROFILE, "create": True})
         assert r.status_code == 200, r.text
-        assert r.json()["warnings"] == [] and r.json()["backup"]
+        body = r.json()
+        assert body["name"] == "zeta" and body["backup"]
+        assert body["warnings"] == []
+        assert [t["passed"] for t in body["tests"]] == [True, True]
         assert c.get("/api/brand-profiles/zeta").json()["profile"] == PROFILE
         sets = {s["name"]: s for s in c.get("/api/brands").json()["sets"]}
         assert sets["zeta"]["managed"] is True and sets["zeta"]["stale"] is False
-        assert sets["acme"]["managed"] is False
-        assert [r["name"] for r in sets["zeta"]["rules"]] == ["Zeta", "Zeta"]
-        edited = {**PROFILE, "people": [{"name": "Jo Bloggs", "common": False}]}
+        assert sets["zeta"]["profile"] == PROFILE
+        assert sets["acme"]["managed"] is False and sets["acme"]["profile"] is None
+        assert sets["zeta"]["rules"]
+        edited = {"brands": [{**PROFILE["brands"][0], "description": "Luggage maker"}]}
         assert c.put("/api/brand-profiles/zeta", json={"profile": edited}).status_code == 200
-        assert c.get("/api/brand-profiles/zeta").json()["profile"]["people"] == [{"name": "Jo Bloggs", "common": False}]
+        assert c.get("/api/brand-profiles/zeta").json()["profile"]["brands"][0]["description"] == "Luggage maker"
 
 
-def test_create_refuses_existing_names_and_raw_sets(settings):
+def test_create_refuses_existing_names_and_hand_written_sets(settings):
     with make_client(settings, search_one=FakeSearch()) as c:
         c.put("/api/brand-profiles/zeta", json={"profile": PROFILE, "create": True})
         assert c.put("/api/brand-profiles/zeta", json={"profile": PROFILE, "create": True}).status_code == 409
-        # acme is a raw set: the form never silently replaces hand-written rules, with or without create
         for create in (True, False):
             r = c.put("/api/brand-profiles/acme", json={"profile": PROFILE, "create": create})
-            assert r.status_code == 409 and "raw" in r.json()["error"]
-
-
-def test_raw_endpoint_refuses_a_managed_set(settings):
-    with make_client(settings, search_one=FakeSearch()) as c:
-        c.put("/api/brand-profiles/zeta", json={"profile": PROFILE, "create": True})
-        r = c.put("/api/brands/zeta", json={"rules": [{"name": "Zeta", "pattern": "Zeta"}]})
-        assert r.status_code == 409 and "simple form" in r.json()["error"]
+            assert r.status_code == 409 and "hand-written" in r.json()["error"]
 
 
 def test_validation_errors_are_422_with_form_wording(settings):
-    bad = {"brands": [{"name": "Zeta", "always": ["Zeta", "zeta"]}]}
+    bad = {"brands": [{**PROFILE["brands"][0], "name": ""}]}
     with make_client(settings, search_one=FakeSearch()) as c:
         r = c.put("/api/brand-profiles/zeta", json={"profile": bad, "create": True})
-        assert r.status_code == 422 and "Names that always mean this brand" in r.json()["error"]
-        r = c.put("/api/brand-profiles/Bad Name", json={"profile": PROFILE, "create": True})
-        assert r.status_code == 422 and "set name" in r.json()["error"]
-        r = c.put("/api/brand-profiles/zeta", json={"profile": {**PROFILE, "colour": "red"}, "create": True})
-        assert r.status_code == 422
+        assert r.status_code == 422 and "Brand name" in r.json()["error"]
+        assert "zeta" not in [s["name"] for s in c.get("/api/brands").json()["sets"]]
 
 
-def test_preview_returns_rules_and_warnings_without_saving(settings):
-    lonely = {"brands": [{"name": "Basil", "everyday_word": {"word": "Basil"}}]}
+def test_unknown_keys_are_422(settings):
+    top = {"brands": PROFILE["brands"], "extra": 1}
+    nested = {"brands": [{**PROFILE["brands"][0], "regex": "x"}]}
     with make_client(settings, search_one=FakeSearch()) as c:
-        r = c.post("/api/brand-profiles/preview", json={"profile": lonely})
-        assert r.status_code == 200
-        body = r.json()
-        assert body["rules"][0]["pattern"].startswith("Basil")
-        assert body["warnings"][0]["brand"] == 0 and body["warnings"][0]["field"] == "confirm"
-        assert "basil" not in [s["name"] for s in c.get("/api/brands").json()["sets"]]
+        for p in (top, nested):
+            assert c.put("/api/brand-profiles/zeta", json={"profile": p, "create": True}).status_code == 422
+            assert c.post("/api/brand-profiles/check", json={"profile": p}).status_code == 422
 
 
-def test_test_endpoint_explains_in_plain_language(settings):
-    with make_client(settings, search_one=FakeSearch()) as c:
-        text = "Zeta luggage is light. Zeta Corp makes anvils for cartoon coyotes everywhere they roam. Zeta again."
-        r = c.post("/api/brand-profiles/test", json={"profile": PROFILE, "text": text})
-        body = r.json()
-        assert [h["brand"] for h in body["hits"]] == ["Zeta"]
-        assert [x["reason"] for x in body["excluded"]] == [
-            "followed by Corp",
-            "no confirming word nearby",
-        ]
-
-
-def test_detach_and_missing(settings):
+def test_get_profile_404_for_hand_written_and_unknown(settings):
     with make_client(settings, search_one=FakeSearch()) as c:
         assert c.get("/api/brand-profiles/acme").status_code == 404
         assert c.get("/api/brand-profiles/nope").status_code == 404
-        c.put("/api/brand-profiles/zeta", json={"profile": PROFILE, "create": True})
-        assert c.delete("/api/brand-profiles/zeta/profile").status_code == 200
-        sets = {s["name"]: s for s in c.get("/api/brands").json()["sets"]}
-        assert sets["zeta"]["managed"] is False
-        assert c.delete("/api/brand-profiles/zeta/profile").status_code == 404
-        assert c.delete("/api/brand-profiles/nope/profile").status_code == 404
-        assert c.delete("/api/brands/zeta").status_code == 200
+
+
+def test_check_returns_tests_with_reasons_and_saves_nothing(settings):
+    with make_client(settings, search_one=FakeSearch()) as c:
+        r = c.post("/api/brand-profiles/check", json={"profile": PROFILE})
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert "warnings" in body
+        assert [t["passed"] for t in body["tests"]] == [True, True]
+        assert "followed by Corp" in body["tests"][1]["not_counted"][0]["reason"]
+        assert "zeta" not in [s["name"] for s in c.get("/api/brands").json()["sets"]]
+
+
+def test_check_validation_error_is_422(settings):
+    bad = {"brands": [{**PROFILE["brands"][0], "name": ""}]}
+    with make_client(settings, search_one=FakeSearch()) as c:
+        assert c.post("/api/brand-profiles/check", json={"profile": bad}).status_code == 422
+
+
+@pytest.mark.parametrize(
+    "method,path",
+    [
+        ("put", "/api/brands/zeta"),
+        ("post", "/api/brands/test"),
+        ("post", "/api/brand-profiles/preview"),
+        ("post", "/api/brand-profiles/test"),
+        ("delete", "/api/brand-profiles/zeta/profile"),
+    ],
+)
+def test_removed_endpoints(settings, method, path):
+    with make_client(settings, search_one=FakeSearch()) as c:
+        assert c.request(method.upper(), path).status_code in (404, 405)

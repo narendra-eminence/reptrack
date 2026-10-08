@@ -20,32 +20,38 @@ class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class WordBody(_Strict):
-    word: str
-    exact_case: bool = True
-    closeness: Literal["close", "nearby", "paragraph"] = "nearby"
-    confirm: list[str] = []
-    not_followed_by: list[str] = []
-    not_preceded_by: list[str] = []
-    not_in_sentence_with: list[str] = []
-    ignore_phrases: list[str] = []
-
-
-class BrandBody(_Strict):
-    name: str
-    always: list[str] = []
-    handles: list[str] = []
-    everyday_word: WordBody | None = None
+class ExclusionsBody(_Strict):
+    followed_by: list[str] = []
+    preceded_by: list[str] = []
+    nearby: list[str] = []
+    phrases: list[str] = []
 
 
 class PersonBody(_Strict):
     name: str
-    common: bool = False
+    require_brand_nearby: bool = False
+
+
+class SentenceBody(_Strict):
+    text: str
+    expect: Literal["match", "no_match"]
+
+
+class BrandBody(_Strict):
+    name: str
+    description: str = ""
+    aliases: list[str] = []
+    hashtags: list[str] = []
+    handles: list[str] = []
+    common_word: bool = False
+    confirming_words: list[str] = []
+    exclusions: ExclusionsBody = ExclusionsBody()
+    people: list[PersonBody] = []
+    tests: list[SentenceBody] = []
 
 
 class ProfileBody(_Strict):
     brands: list[BrandBody]
-    people: list[PersonBody] = []
 
 
 class SaveBody(_Strict):
@@ -53,13 +59,8 @@ class SaveBody(_Strict):
     create: bool = False
 
 
-class PreviewBody(_Strict):
+class CheckBody(_Strict):
     profile: ProfileBody
-
-
-class TestBody(_Strict):
-    profile: ProfileBody
-    text: str
 
 
 def _config(request: Request) -> Any:
@@ -87,7 +88,9 @@ def get_profile(request: Request, name: str) -> dict:
         raise ApiError(404, f"No brand set named {name!r}.")
     profile = brands.load_profile(_config(request), name)
     if profile is None:
-        raise ApiError(404, f"{name!r} is a raw set, edited with regex rules, not the simple form.")
+        raise ApiError(
+            404, f"{name!r} was written by hand before the form existed. Create it again with the form to edit it."
+        )
     return {"profile": profile_to_dict(profile)}
 
 
@@ -98,8 +101,7 @@ def save_profile(request: Request, name: str, body: SaveBody) -> dict:
     if existing is not None and not existing.managed:
         raise ApiError(
             409,
-            f"{name!r} is a raw set with hand-written rules. Pick another name; the form never "
-            "replaces hand-written rules.",
+            f"{name!r} is a hand-written set. Pick another name; the form never replaces hand-written sets.",
         )
     if existing is not None and body.create:
         raise ApiError(409, f"A set named {name!r} already exists.")
@@ -107,35 +109,19 @@ def save_profile(request: Request, name: str, body: SaveBody) -> dict:
         backup, warnings = brands.save_profile(_config(request), name, profile)
     except CONFIG_WRITE_ERRORS as e:
         raise ApiError(422, str(e)) from None
-    return {"name": name, "backup": str(backup), "warnings": [asdict(w) for w in warnings]}
+    return {
+        "name": name,
+        "backup": str(backup),
+        "warnings": [asdict(w) for w in warnings],
+        "tests": brands.check_tests(profile),
+    }
 
 
-@router.post("/api/brand-profiles/preview")
-def preview(body: PreviewBody) -> dict:
+@router.post("/api/brand-profiles/check")
+def check(body: CheckBody) -> dict:
+    profile = _profile(body.profile)
     try:
-        result = build_rules(_profile(body.profile))
+        result = build_rules(profile)
     except ProfileError as e:
         raise ApiError(422, str(e)) from None
-    return {"rules": [brands.rule_to_dict(r) for r in result.rules], "warnings": [asdict(w) for w in result.warnings]}
-
-
-@router.post("/api/brand-profiles/test")
-def test_profile(body: TestBody) -> dict:
-    try:
-        result = build_rules(_profile(body.profile))
-    except ProfileError as e:
-        raise ApiError(422, str(e)) from None
-    return brands.try_rules(result.rules, body.text, result.labels)
-
-
-@router.delete("/api/brand-profiles/{name}/profile")
-def detach(request: Request, name: str) -> dict:
-    if name not in _sets(request):
-        raise ApiError(404, f"No brand set named {name!r}.")
-    if brands.load_profile(_config(request), name) is None:
-        raise ApiError(404, f"{name!r} is a raw set, edited with regex rules, not the simple form.")
-    try:
-        backup = brands.detach_profile(_config(request), name)
-    except CONFIG_WRITE_ERRORS as e:
-        raise ApiError(422, str(e)) from None
-    return {"name": name, "backup": str(backup)}
+    return {"warnings": [asdict(w) for w in result.warnings], "tests": brands.check_tests(profile)}
