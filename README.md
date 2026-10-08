@@ -48,10 +48,11 @@ The Brands page edits `config.yaml` in url-verification and writes `config.yaml.
 A verification copies the chosen set's rules when it starts and uses only that copy, so editing a set never changes
 a running or finished verification.
 
-"New set" opens the simple form: plain words for the brand and its people. No regex is involved. Sets made with the form show a "Form"
-badge and reopen in the form. "New raw set" and existing hand-written sets use the regex editor. "Switch to
-advanced editing" turns a form set into raw rules. The form answers live under `profiles:` in url-verification's
-`config.yaml`.
+"New set" opens the brand configuration form: brand names and aliases, hashtags, social handles, whether the brand name
+is a common word, words that confirm or exclude a mention, people associated with the brand, and test sentences. No regex
+is involved. Sets made with the form show a "Form" badge and reopen in the form. Hand-written sets from before the form
+are read-only (delete only) and keep working for verification. The form answers live under `profiles:` in
+url-verification's `config.yaml`.
 
 ## Checks
 
