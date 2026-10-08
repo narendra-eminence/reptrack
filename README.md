@@ -13,6 +13,9 @@ DataForSEO, verify every result URL against a chosen brand set, download the ver
 Override the locations with `COMPANY_MONITOR_DIR`, `URL_VERIFICATION_DIR`, `URL_VERIFICATION_CONFIG`,
 `URL_VERIFICATION_CACHE`, `PIPELINE_DATA_DIR`.
 
+Suggest on the brand form needs `ANTHROPIC_API_KEY` in `repscore-pipeline/.env` (git-ignored). Optional:
+`PIPELINE_SUGGEST_MODEL` (default `claude-opus-5-5`). Without a key the button is disabled; everything else works.
+
 The backend (`api/`) is FastAPI on Python 3.12 (pinned in `api/.python-version`, managed with `uv`). The
 frontend (`web/`) is Next.js 16 with shadcn's `base-nova` style, built on Base UI (not Radix).
 

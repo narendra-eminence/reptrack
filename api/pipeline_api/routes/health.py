@@ -59,6 +59,7 @@ def health(request: Request) -> dict:
         "verifier_config_error": config_error,
         "keys": keys,
         "chromium": _chromium_installed(),
+        "suggest_available": deps.suggester is not None,
     }
     result["ok"] = bool(
         result["company_monitor"] and result["url_verification"] and config_error is None and result["chromium"]

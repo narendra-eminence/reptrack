@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from pipeline_api.settings import Settings, load_settings
+from pipeline_api.settings import REPO_ROOT, Settings, load_settings
 
 
 def test_defaults_point_at_sibling_repos():
@@ -11,7 +11,7 @@ def test_defaults_point_at_sibling_repos():
     assert s.url_verification_dir == Path.home() / "Desktop/niks/url-verification"
     assert s.verifier_config == s.url_verification_dir / "config.yaml"
     assert s.verifier_cache == s.url_verification_dir / "cache"
-    assert s.data_dir.name == "data" and s.data_dir.parent.name == "repscore-pipeline"
+    assert s.data_dir == REPO_ROOT / "data"
     assert s.search_backend == "live"
 
 
