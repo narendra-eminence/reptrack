@@ -2,9 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { BrandProfileForm } from "@/components/BrandProfileForm";
 import { RawSetEditor } from "@/components/RawSetEditor";
 import { api, errorMessage } from "@/lib/api";
-import type { BrandSet } from "@/lib/types";
+import { emptyProfile } from "@/lib/brandProfile";
+import type { BrandProfile, BrandSet } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 export type Selection = { kind: "new-form" } | { kind: "new-raw" } | { kind: "set"; name: string };
@@ -14,6 +16,8 @@ export function BrandWorkspace() {
   const [selection, setSelection] = useState<Selection>({ kind: "new-form" });
   const [version, setVersion] = useState(0); // remounts the editor when the selection is replaced
   const [error, setError] = useState<string | null>(null);
+  const [suggestAvailable, setSuggestAvailable] = useState(false);
+  const [profile, setProfile] = useState<{ name: string; profile: BrandProfile } | null>(null);
   const dirty = useRef(false);
   const onDirtyChange = useCallback((d: boolean) => {
     dirty.current = d;
@@ -30,6 +34,7 @@ export function BrandWorkspace() {
   useEffect(() => {
     let alive = true;
     api.brands().then((r) => alive && setSets(r.sets)).catch((e) => alive && setError(errorMessage(e)));
+    api.health().then((h) => alive && setSuggestAvailable(Boolean(h.suggest_available))).catch(() => {});
     return () => {
       alive = false;
     };
@@ -39,6 +44,7 @@ export function BrandWorkspace() {
     if (dirty.current && !window.confirm("Discard unsaved changes?")) return;
     dirty.current = false;
     setSelection(next);
+    setProfile(null);
     setVersion((v) => v + 1);
   }
 
@@ -47,6 +53,23 @@ export function BrandWorkspace() {
     dirty.current = false;
     await load();
     setSelection({ kind: "set", name });
+  }
+
+  // A form save keeps the saved profile, so the same form instance stays mounted without refetching it.
+  async function afterFormSave(name: string, saved: BrandProfile) {
+    dirty.current = false;
+    await load();
+    setProfile({ name, profile: saved });
+    setSelection({ kind: "set", name });
+  }
+
+  // The set is raw now: reselect it and remount so the raw editor opens.
+  async function afterDetach(name: string) {
+    dirty.current = false;
+    await load();
+    setProfile(null);
+    setSelection({ kind: "set", name });
+    setVersion((v) => v + 1);
   }
 
   async function afterDelete() {
@@ -58,7 +81,22 @@ export function BrandWorkspace() {
 
   const current = selection.kind === "set" ? sets.find((s) => s.name === selection.name) ?? null : null;
   const names = sets.map((s) => s.name);
-  const key = `${selection.kind === "new-form" ? "form" : "raw"}-${version}`;
+  const isRaw = selection.kind === "new-raw" || (current !== null && !current.managed);
+  const key = `${isRaw ? "raw" : "form"}-${version}`;
+  const currentName = current?.name;
+  const currentManaged = current?.managed;
+
+  useEffect(() => {
+    if (!currentName || !currentManaged || profile?.name === currentName) return;
+    let alive = true;
+    api
+      .brandProfile(currentName)
+      .then((r) => alive && setProfile({ name: currentName, profile: r.profile }))
+      .catch((e) => alive && setError(errorMessage(e)));
+    return () => {
+      alive = false;
+    };
+  }, [currentName, currentManaged, profile?.name, version]);
 
   return (
     <div className="grid gap-8 lg:grid-cols-[240px_minmax(0,1fr)]">
@@ -96,12 +134,23 @@ export function BrandWorkspace() {
       </aside>
       <div className="min-w-0">
         {error && <p role="alert" className="mb-4 text-sm text-red-700">{error}</p>}
-        {selection.kind === "new-raw" || (current && !current.managed) ? (
+        {isRaw ? (
           <RawSetEditor key={key} set={current} existingNames={names} onSaved={afterSave} onDeleted={afterDelete} onDirtyChange={onDirtyChange} />
+        ) : selection.kind === "new-form" || (profile && current && profile.name === current.name) ? (
+          <BrandProfileForm
+            key={key}
+            name={current?.name ?? null}
+            initial={selection.kind === "new-form" || !profile ? emptyProfile() : profile.profile}
+            stale={current?.stale ?? false}
+            existingNames={names}
+            suggestAvailable={suggestAvailable}
+            onSaved={afterFormSave}
+            onDeleted={afterDelete}
+            onDetached={afterDetach}
+            onDirtyChange={onDirtyChange}
+          />
         ) : (
-          <p key={key} className="text-sm text-neutral-600" data-testid="form-placeholder">
-            The simple form arrives in the next task.
-          </p>
+          <p className="text-sm text-neutral-600">Loading...</p>
         )}
       </div>
     </div>
