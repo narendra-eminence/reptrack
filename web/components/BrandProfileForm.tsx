@@ -47,23 +47,31 @@ export function BrandProfileForm({ name, initial, stale, existingNames, onSaved,
 
   // Preview on every change (debounced): warnings next to fields, and the generated rules.
   const clean = useMemo(() => cleanProfile(profile), [profile]);
+  const hasBrandName = profile.brands.some((b) => b.name.trim() !== "");
   useEffect(() => {
+    if (!hasBrandName) return; // nothing to preview yet; the panel shows a neutral hint instead
+    let alive = true; // ignore responses for a profile that has since changed
     const t = setTimeout(() => {
       api
         .previewBrandProfile(clean)
         .then((r) => {
+          if (!alive) return;
           setWarnings(r.warnings);
           setRules(r.rules);
           setPreviewError(null);
         })
         .catch((e) => {
+          if (!alive) return;
           setWarnings([]);
           setRules([]);
           setPreviewError(errorMessage(e));
         });
     }, 400);
-    return () => clearTimeout(t);
-  }, [clean]);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, [clean, hasBrandName]);
 
   const updateBrand = (i: number, patch: Partial<ProfileBrand>) =>
     setProfile((p) => ({ ...p, brands: p.brands.map((b, j) => (j === i ? { ...b, ...patch } : b)) }));
@@ -73,7 +81,7 @@ export function BrandProfileForm({ name, initial, stale, existingNames, onSaved,
       brands: p.brands.map((b, j) => (j === i && b.everyday_word ? { ...b, everyday_word: { ...b.everyday_word, ...patch } } : b)),
     }));
   const warningsFor = (i: number | null, field: string) =>
-    warnings.filter((w) => w.brand === i && w.field === field).map((w) => (
+    (hasBrandName ? warnings : []).filter((w) => w.brand === i && w.field === field).map((w) => (
       <p key={w.message} className="text-xs text-amber-800">{w.message}</p>
     ));
 
@@ -81,13 +89,14 @@ export function BrandProfileForm({ name, initial, stale, existingNames, onSaved,
     setError(null);
     setSaved(null);
     const n = setName.trim();
+    const sentSnapshot = JSON.stringify({ n: setName, p: profile }); // what is being saved, not what is typed meanwhile
     if (savedName === null && existingNames.includes(n)) {
       setError(`A set named ${n} already exists - pick another name.`);
       return;
     }
     try {
       const res = await api.saveBrandProfile(n, clean, savedName === null);
-      setSavedSnapshot(JSON.stringify({ n: setName, p: profile }));
+      setSavedSnapshot(sentSnapshot);
       setSaved(`Saved. The previous config.yaml was backed up to ${res.backup.split("/").pop()}.`);
       setSavedName(res.name);
       onSaved(res.name, clean);
@@ -247,7 +256,7 @@ export function BrandProfileForm({ name, initial, stale, existingNames, onSaved,
         </Button>
         {showRules && (
           <div data-testid="generated-rules" className="rounded-md border bg-neutral-50 p-3">
-            {previewError ? <p className="text-sm text-neutral-600">{previewError}</p> : <BrandRules rules={rules} />}
+            {!hasBrandName ? <p className="text-sm text-neutral-600">Fill in a brand name to see the rules.</p> : previewError ? <p className="text-sm text-neutral-600">{previewError}</p> : <BrandRules rules={rules} />}
           </div>
         )}
       </div>
@@ -258,7 +267,7 @@ export function BrandProfileForm({ name, initial, stale, existingNames, onSaved,
         {savedName && <Button variant="ghost" onClick={() => setDialog("detach")}>Switch to advanced editing</Button>}
       </div>
       {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
-      {saved && <p role="status" className="text-sm text-green-800">{saved}</p>}
+      {saved && snapshot === savedSnapshot && <p role="status" className="text-sm text-green-800">{saved}</p>}
 
       <BrandTryPanel run={(text) => api.testBrandProfile(clean, text)} />
 
