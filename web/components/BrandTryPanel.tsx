@@ -56,8 +56,8 @@ export function BrandTryPanel({ run }: { run: (text: string) => Promise<TryResul
           <div>
             <p className="text-sm font-semibold">Counted ({tried.hits.length})</p>
             <ul data-testid="try-hits" className="mt-1 space-y-1 text-sm">
-              {tried.hits.map((h) => (
-                <li key={`${h.brand}-${h.offset}`}>
+              {tried.hits.map((h, i) => (
+                <li key={`${h.brand}-${h.offset}-${i}`}>
                   <span className="font-medium">{h.brand}</span>: <Highlighted e={h} />
                 </li>
               ))}
@@ -66,8 +66,8 @@ export function BrandTryPanel({ run }: { run: (text: string) => Promise<TryResul
           <div>
             <p className="text-sm font-semibold">Not counted ({tried.excluded.length})</p>
             <ul data-testid="try-excluded" className="mt-1 space-y-1 text-sm">
-              {tried.excluded.map((x) => (
-                <li key={`${x.brand}-${x.offset}`}>
+              {tried.excluded.map((x, i) => (
+                <li key={`${x.brand}-${x.offset}-${i}`}>
                   <Highlighted e={x} /> - {x.reason}
                 </li>
               ))}

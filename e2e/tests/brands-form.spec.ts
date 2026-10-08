@@ -38,7 +38,7 @@ test("create, try, save, reload and edit a brand set from the simple form", asyn
   const original = page.viewportSize() ?? { width: 1280, height: 800 };
   await page.setViewportSize({ width: 400, height: 900 });
   await shot(page, "brands-form-narrow", info);
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.setViewportSize(original);
 
   await page.reload();

@@ -177,7 +177,7 @@ export function BrandProfileForm({ name, initial, stale, existingNames, suggestA
     <section className="space-y-6">
       {stale && (
         <p role="note" className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
-          These rules differ from what the form would produce, probably from a hand edit of config.yaml. Saving will replace them with the form&apos;s version.
+          These rules differ from what the form would produce, from a hand edit of config.yaml or an app update. Saving will replace them with the form&apos;s version.
         </p>
       )}
       <div className="max-w-sm space-y-1.5">
@@ -353,6 +353,7 @@ export function BrandProfileForm({ name, initial, stale, existingNames, suggestA
         )}
       </div>
 
+      {hasBrandName && previewError && <p className="text-sm text-neutral-600">{previewError}</p>}
       <div className="flex flex-wrap items-center gap-3">
         <Button onClick={save} disabled={!setName.trim()}>Save set</Button>
         {savedName && <Button variant="outline" onClick={() => setDialog("delete")}>Delete set</Button>}

@@ -26,6 +26,7 @@ export function BrandWorkspace() {
   const load = useCallback(async () => {
     try {
       setSets((await api.brands()).sets);
+      setError(null);
     } catch (e) {
       setError(errorMessage(e));
     }
@@ -43,6 +44,7 @@ export function BrandWorkspace() {
   function select(next: Selection) {
     if (dirty.current && !window.confirm("Discard unsaved changes?")) return;
     dirty.current = false;
+    setError(null);
     setSelection(next);
     setProfile(null);
     setVersion((v) => v + 1);
@@ -91,7 +93,11 @@ export function BrandWorkspace() {
     let alive = true;
     api
       .brandProfile(currentName)
-      .then((r) => alive && setProfile({ name: currentName, profile: r.profile }))
+      .then((r) => {
+        if (!alive) return;
+        setError(null);
+        setProfile({ name: currentName, profile: r.profile });
+      })
       .catch((e) => alive && setError(errorMessage(e)));
     return () => {
       alive = false;
@@ -150,7 +156,7 @@ export function BrandWorkspace() {
             onDirtyChange={onDirtyChange}
           />
         ) : (
-          <p className="text-sm text-neutral-600">Loading...</p>
+          error ? null : <p className="text-sm text-neutral-600">Loading...</p>
         )}
       </div>
     </div>

@@ -46,7 +46,7 @@ export function missingValues(list: string[], values: string[]): string[] {
   return values.filter((v) => !seen.has(v.toLowerCase()));
 }
 
-const trimAll = (xs: string[]) => xs.map((x) => x.trim());
+const trimAll = (xs: string[]) => xs.map((x) => x.trim()).filter(Boolean);
 
 export function cleanProfile(p: BrandProfile): BrandProfile {
   return {
@@ -60,6 +60,6 @@ export function cleanProfile(p: BrandProfile): BrandProfile {
         ...Object.fromEntries(WORD_LISTS.map((k) => [k, trimAll(b.everyday_word![k])])),
       },
     })),
-    people: p.people.map((x) => ({ name: x.name.trim(), common: x.common })),
+    people: p.people.map((x) => ({ name: x.name.trim(), common: x.common })).filter((x) => x.name),
   };
 }

@@ -37,7 +37,7 @@ export function TagInput({
               onClick={() => onChange(values.filter((x) => x !== v))}
               className="rounded px-1 text-neutral-500 hover:bg-neutral-200 hover:text-neutral-900"
             >
-              ×
+              <span aria-hidden="true">×</span>
             </button>
           </span>
         ))}

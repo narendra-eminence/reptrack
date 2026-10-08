@@ -32,4 +32,14 @@ describe("brandProfile helpers", () => {
     expect(c.brands[0].everyday_word?.confirm).toEqual(["bag"]);
     expect(c.people[0].name).toBe("Jo");
   });
+
+  it("drops untouched people rows and blank list values", () => {
+    const p = emptyProfile();
+    p.brands[0] = { ...p.brands[0], name: "Safari", always: ["  ", "Safari Industries"], everyday_word: { ...emptyWord("Safari"), confirm: ["", " bag "] } };
+    p.people = [{ name: "   ", common: false }, { name: "Jo", common: true }, { name: "", common: true }];
+    const c = cleanProfile(p);
+    expect(c.people).toEqual([{ name: "Jo", common: true }]);
+    expect(c.brands[0].always).toEqual(["Safari Industries"]);
+    expect(c.brands[0].everyday_word?.confirm).toEqual(["bag"]);
+  });
 });
