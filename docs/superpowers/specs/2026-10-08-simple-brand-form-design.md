@@ -157,9 +157,9 @@ A new router `api/pipeline_api/routes/brand_profiles.py`. Pydantic models mirror
 | Endpoint | Body | Returns |
 |---|---|---|
 | `GET /api/brand-profiles/{name}` | | `{profile}`, 404 for a raw set |
-| `PUT /api/brand-profiles/{name}` | `{profile, create}` | `{name, backup, warnings}`. 409 when `create` is true and the name exists. 422 with the validation message otherwise. |
-| `POST /api/brand-profiles/preview` | `{name, profile}` | `{rules, warnings}`, nothing saved |
-| `POST /api/brand-profiles/test` | `{name, profile, text}` | Same shape as `/api/brands/test`, with each "excluded by <regex>" reason replaced by "Not counted: <label>" from `BuildResult.labels` |
+| `PUT /api/brand-profiles/{name}` | `{profile, create}` | `{name, backup, warnings}`. 409 when `create` is true and the name exists, and 409 when the name is an existing raw set (the form never silently replaces hand-written rules). 422 with the validation message otherwise. |
+| `POST /api/brand-profiles/preview` | `{profile}` | `{rules, warnings}`, nothing saved |
+| `POST /api/brand-profiles/test` | `{profile, text}` | Same shape as `/api/brands/test`, with each "excluded by <regex>" reason replaced by "Not counted: <label>" from `BuildResult.labels` |
 | `POST /api/brand-profiles/suggest` | `{brand_name, description}` | `{suggestion}` (section 8). 503 when no API key is configured, 502 on a Claude error. |
 | `DELETE /api/brand-profiles/{name}/profile` | | `{name, backup}`. Switches the set to advanced editing. |
 
