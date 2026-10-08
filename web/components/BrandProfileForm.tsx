@@ -279,7 +279,7 @@ export function BrandProfileForm({ name, initial, stale, existingNames, suggestA
                       </NativeSelect>
                     </div>
                   </div>
-                  <TagInput id={`b${i}-confirm`} label="Words that confirm it's the brand" ariaLabel={`Brand ${n} confirming words`} values={w.confirm} onChange={(v) => updateWord(i, { confirm: v })} placeholder="e.g. luggage, bag, NSE" hint="Plurals are matched automatically. Brand names and people in this set also count.">
+                  <TagInput id={`b${i}-confirm`} label="Words that confirm it's the brand" ariaLabel={`Brand ${n} confirming words`} values={w.confirm} onChange={(v) => updateWord(i, { confirm: v })} placeholder="e.g. luggage, bag, NSE" hint="Plurals are matched automatically. Brand names and people in this set also count, except people marked as a common name.">
                     {sw && <SuggestChips values={sw.confirm} current={w.confirm} allLabel="Add all confirming words" onAdd={(v) => updateWord(i, { confirm: addValues(w.confirm, v) })} />}
                     {warningsFor(i, "confirm")}
                   </TagInput>
