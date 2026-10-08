@@ -81,11 +81,23 @@ def test_verify_ingests_and_filters_search_snippet_match_status(settings, keys):
         _write_output(
             output_path,
             [
-                {**r, "Status": s, "Evidence Source": e, "Hit Sentence": "Acme reported growth", "Duplicate Of Row": None}
+                {
+                    **r,
+                    "Status": s,
+                    "Evidence Source": e,
+                    "Hit Sentence": "Acme reported growth",
+                    "Duplicate Of Row": None,
+                }
                 for r, s, e in zip(df.to_dict("records"), statuses, evidence, strict=True)
             ],
         )
-        return {"Search snippet match": 1, "Verified": len(df) - 1, "_rows": len(df), "_duplicates": 0, "_unique": len(df)}
+        return {
+            "Search snippet match": 1,
+            "Verified": len(df) - 1,
+            "_rows": len(df),
+            "_duplicates": 0,
+            "_unique": len(df),
+        }
 
     with make_client(settings, search_one=FakeSearch(), pipeline_run=run) as c:
         run_id = _scraped_run(c, None)
