@@ -23,7 +23,9 @@ test("create, try, save, reload and edit a brand set from the simple form", asyn
   await page.getByLabel("Sample text").fill("Zeta Industries rose. Open it in Zeta browser. Zeta luggage is light.");
   await page.getByRole("button", { name: "Try rules" }).click();
   await expect(page.getByTestId("try-hits").getByRole("listitem")).toHaveCount(2);
-  await expect(page.getByTestId("try-excluded")).toContainText("Not counted: followed by browser");
+  await expect(page.getByTestId("try-excluded")).toContainText("followed by browser");
+  await expect(page.getByTestId("try-excluded")).not.toContainText("Not counted:");
+  await expect(page.getByTestId("try-hits").getByRole("listitem").first().locator("mark")).toHaveText("Zeta Industries");
   await expect(page.getByTestId("try-excluded")).not.toContainText("(?i:");
 
   await page.getByRole("button", { name: "Show generated rules" }).click();

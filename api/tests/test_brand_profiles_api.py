@@ -83,8 +83,8 @@ def test_test_endpoint_explains_in_plain_language(settings):
         body = r.json()
         assert [h["brand"] for h in body["hits"]] == ["Zeta"]
         assert [x["reason"] for x in body["excluded"]] == [
-            "Not counted: followed by Corp",
-            "Not counted: no confirming word nearby",
+            "followed by Corp",
+            "no confirming word nearby",
         ]
 
 

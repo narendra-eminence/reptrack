@@ -7,15 +7,37 @@ import { Textarea } from "@/components/ui/textarea";
 import { errorMessage } from "@/lib/api";
 import type { TryResult } from "@/lib/types";
 
+const wordCount = (s: string) => s.split(/\s+/).filter(Boolean).length;
+
+// "…" only where the API's word window left words out of the sample that was tried.
+function Highlighted({ sample, offset, before, text, after }: {
+  sample: string; offset: number; before: string; text: string; after: string;
+}) {
+  const cutBefore = wordCount(sample.slice(0, offset)) > wordCount(before);
+  const cutAfter = wordCount(sample.slice(offset + text.length)) > wordCount(after);
+  return (
+    <>
+      {cutBefore && "… "}
+      {before && `${before} `}
+      <mark className="rounded-sm bg-amber-100 px-0.5 text-inherit">{text}</mark>
+      {after && ` ${after}`}
+      {cutAfter && " …"}
+    </>
+  );
+}
+
 export function BrandTryPanel({ run }: { run: (text: string) => Promise<TryResult> }) {
   const [sample, setSample] = useState("");
   const [tried, setTried] = useState<TryResult | null>(null);
+  const [triedSample, setTriedSample] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   async function tryRules() {
     setError(null);
     try {
-      setTried(await run(sample));
+      const result = await run(sample);
+      setTriedSample(sample);
+      setTried(result);
     } catch (e) {
       setTried(null);
       setError(errorMessage(e));
@@ -44,7 +66,7 @@ export function BrandTryPanel({ run }: { run: (text: string) => Promise<TryResul
             <ul data-testid="try-hits" className="mt-1 space-y-1 text-sm">
               {tried.hits.map((h) => (
                 <li key={`${h.brand}-${h.offset}`}>
-                  <span className="font-medium">{h.brand}</span>: {h.snippet}
+                  <span className="font-medium">{h.brand}</span>: <Highlighted sample={triedSample} offset={h.offset} before={h.before} text={h.text} after={h.after} />
                 </li>
               ))}
             </ul>
@@ -53,7 +75,9 @@ export function BrandTryPanel({ run }: { run: (text: string) => Promise<TryResul
             <p className="text-sm font-semibold">Not counted ({tried.excluded.length})</p>
             <ul data-testid="try-excluded" className="mt-1 space-y-1 text-sm">
               {tried.excluded.map((x) => (
-                <li key={`${x.brand}-${x.offset}`}>&quot;{x.text}&quot; - {x.reason}</li>
+                <li key={`${x.brand}-${x.offset}`}>
+                  <Highlighted sample={triedSample} offset={x.offset} before={x.before} text={x.text} after={x.after} /> - {x.reason}
+                </li>
               ))}
             </ul>
           </div>
