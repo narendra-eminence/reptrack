@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -56,8 +56,9 @@ class Settings:
 
 def load_settings(env: Mapping[str, str] | None = None) -> Settings:
     if env is None:
-        load_dotenv(REPO_ROOT / ".env", override=False)  # ANTHROPIC_API_KEY for Suggest
-        env = os.environ
+        # .env supplies ANTHROPIC_API_KEY for Suggest; the real environment wins. os.environ is left untouched.
+        merged = {**dotenv_values(REPO_ROOT / ".env"), **os.environ}
+        env = {k: v for k, v in merged.items() if v is not None}
     home = Path.home()
     uv_dir = Path(env.get("URL_VERIFICATION_DIR", str(home / "Desktop/niks/url-verification"))).expanduser()
     fixture = env.get("PIPELINE_SEARCH_FIXTURE")

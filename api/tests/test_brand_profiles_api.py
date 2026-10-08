@@ -96,5 +96,6 @@ def test_detach_and_missing(settings):
         assert c.delete("/api/brand-profiles/zeta/profile").status_code == 200
         sets = {s["name"]: s for s in c.get("/api/brands").json()["sets"]}
         assert sets["zeta"]["managed"] is False
-        assert c.delete("/api/brand-profiles/zeta/profile").status_code == 422
+        assert c.delete("/api/brand-profiles/zeta/profile").status_code == 404
+        assert c.delete("/api/brand-profiles/nope/profile").status_code == 404
         assert c.delete("/api/brands/zeta").status_code == 200

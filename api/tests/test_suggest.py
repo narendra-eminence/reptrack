@@ -69,6 +69,9 @@ def test_suggest_errors(settings):
         r = c.post("/api/brand-profiles/suggest", json={"brand_name": "Safari"})
         assert r.status_code == 502 and r.json()["error"] == "boom"
         assert c.post("/api/brand-profiles/suggest", json={"brand_name": "  "}).status_code == 422
+        too_long = c.post("/api/brand-profiles/suggest", json={"brand_name": "Acme", "description": "x" * 501})
+        assert too_long.status_code == 422
+        assert c.post("/api/brand-profiles/suggest", json={"brand_name": "A" * 201}).status_code == 422
 
 
 def test_settings_read_suggest_keys():

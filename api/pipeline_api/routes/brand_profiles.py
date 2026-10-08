@@ -6,7 +6,7 @@ from dataclasses import asdict
 from typing import Any, Literal
 
 from fastapi import APIRouter, Request
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from urlverify import brands
 from urlverify.profile import BrandProfile, ProfileError, build_rules, profile_from_dict, profile_to_dict
 
@@ -131,6 +131,10 @@ def test_profile(body: TestBody) -> dict:
 
 @router.delete("/api/brand-profiles/{name}/profile")
 def detach(request: Request, name: str) -> dict:
+    if name not in _sets(request):
+        raise ApiError(404, f"No brand set named {name!r}.")
+    if brands.load_profile(_config(request), name) is None:
+        raise ApiError(404, f"{name!r} is a raw set, edited with regex rules, not the simple form.")
     try:
         backup = brands.detach_profile(_config(request), name)
     except CONFIG_WRITE_ERRORS as e:
@@ -139,8 +143,8 @@ def detach(request: Request, name: str) -> dict:
 
 
 class SuggestBody(_Strict):
-    brand_name: str
-    description: str = ""
+    brand_name: str = Field(max_length=200)
+    description: str = Field(default="", max_length=500)
 
 
 @router.post("/api/brand-profiles/suggest")

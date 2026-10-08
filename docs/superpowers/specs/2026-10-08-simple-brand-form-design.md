@@ -123,7 +123,7 @@ It returns warnings (shown in the form, not blocking save):
    - `pattern`: `W + SUFFIX`
    - `case_sensitive`: `exact_case`
    - `context_window`: close 60, nearby 100, paragraph 2000. The matcher works paragraph by paragraph, so 2000 means the whole paragraph in practice.
-   - `require_context`: `\b` + `plural(c)` + `\b` for each `confirm` entry, plus `lit()` of every brand name, every `always` entry and every person name in the set. These automatic entries mirror today's hand-written sets, where Safari's context includes "Safari Industries", "Genius" and "Sudhir Jatia".
+   - `require_context`: `\b` + `plural(c)` + `\b` for each `confirm` entry, plus `lit()` of every brand name, every `always` entry and every person name whose "common name" box is not ticked. Common names are left out because a name like "Raj" would otherwise confirm the everyday word on its own ("Raj booked a Safari trip"); they only count as leaders when the brand is nearby, see below. These automatic entries mirror today's hand-written sets, where Safari's context includes "Safari Industries", "Genius" and "Sudhir Jatia".
    - `exclude`:
      - `not_followed_by`: `W[\s-]+` + `any_of(values, plural)` + `\b`, labelled "followed by browser, tab, ..."
      - `not_preceded_by`: `any_of(values, plural)` + `[\s-]+W`, labelled "preceded by Apple, iOS, ..."
