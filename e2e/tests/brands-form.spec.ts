@@ -103,7 +103,7 @@ test("Suggest offers chips that are only added when clicked", async ({ page }, i
             word: "Theta", exact_case: true, closeness: "close", confirm: ["luggage", "trolley"],
             not_followed_by: ["function"], not_preceded_by: [], not_in_sentence_with: [], ignore_phrases: [],
           },
-          people: [{ name: "Ann Example", common: false }],
+          people: [{ name: "Ann Example", common: true }],
           notes: "Collides with the Greek letter.",
         },
       },
@@ -131,6 +131,7 @@ test("Suggest offers chips that are only added when clicked", async ({ page }, i
   await shot(page, "brands-suggest", info);
   await page.getByRole("button", { name: "Add Ann Example" }).click();
   await expect(page.getByLabel("Person 1 name")).toHaveValue("Ann Example");
+  await expect(page.getByLabel("Person 1 common name")).toBeChecked();
 });
 
 test("Suggest is disabled without an API key", async ({ page }) => {
@@ -139,4 +140,46 @@ test("Suggest is disabled without an API key", async ({ page }) => {
   await page.getByLabel("Brand 1 name", { exact: true }).fill("Theta");
   await expect(page.getByRole("button", { name: "Suggest" })).toBeDisabled();
   await expect(page.getByText("Suggest needs ANTHROPIC_API_KEY")).toBeVisible();
+});
+
+async function threeBrandsWithSuggest(page: import("@playwright/test").Page) {
+  await page.route("**/api/health", async (route) => {
+    const res = await route.fetch();
+    await route.fulfill({ response: res, json: { ...(await res.json()), suggest_available: true } });
+  });
+  await page.route("**/api/brand-profiles/suggest", async (route) => {
+    const { brand_name } = route.request().postDataJSON();
+    if (brand_name === "Beta") await new Promise((r) => setTimeout(r, 800));
+    await route.fulfill({
+      json: { dropped: 0, suggestion: { always: [], handles: [], everyday_word: null, people: [], notes: `Note for ${brand_name}.` } },
+    });
+  });
+  await page.goto("/brands");
+  await page.getByRole("button", { name: "New set", exact: true }).click();
+  await page.getByLabel("Brand 1 name", { exact: true }).fill("Alpha");
+  for (const [n, name] of [[2, "Beta"], [3, "Gamma"]] as const) {
+    await page.getByRole("button", { name: "Add brand", exact: true }).click();
+    await page.getByLabel(`Brand ${n} name`, { exact: true }).fill(name);
+  }
+  return page.getByRole("listitem").filter({ has: page.getByRole("button", { name: "Suggest" }) });
+}
+
+test("a settled Suggest result stays on its card when an earlier card is removed", async ({ page }) => {
+  const cards = await threeBrandsWithSuggest(page);
+  await cards.nth(1).getByRole("button", { name: "Suggest" }).click();
+  await expect(cards.nth(1).getByText("Note for Beta.")).toBeVisible();
+  await page.getByRole("button", { name: "Remove brand" }).first().click();
+  await expect(page.getByLabel("Brand 1 name", { exact: true })).toHaveValue("Beta");
+  await expect(cards.nth(0).getByText("Note for Beta.")).toBeVisible();
+  await expect(cards.nth(1).getByText("Note for Beta.")).toHaveCount(0);
+});
+
+test("an in-flight Suggest result lands on its card when an earlier card is removed", async ({ page }) => {
+  const cards = await threeBrandsWithSuggest(page);
+  await cards.nth(1).getByRole("button", { name: "Suggest" }).click();
+  await page.getByRole("button", { name: "Remove brand" }).first().click(); // while Beta is pending
+  await expect(page.getByLabel("Brand 1 name", { exact: true })).toHaveValue("Beta");
+  await expect(cards.nth(0).getByText("Note for Beta.")).toBeVisible();
+  await expect(cards.nth(1).getByText("Note for Beta.")).toHaveCount(0);
+  await expect(cards.nth(0).getByRole("button", { name: "Suggest" })).toBeEnabled();
 });

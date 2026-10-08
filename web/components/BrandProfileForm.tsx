@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
   AlertDialogHeader, AlertDialogTitle,
@@ -16,6 +16,11 @@ import { Label } from "@/components/ui/label";
 import { api, errorMessage } from "@/lib/api";
 import { CLOSENESS_LABELS, addValues, cleanProfile, emptyBrand, emptyWord } from "@/lib/brandProfile";
 import type { BrandProfile, BrandRule, Closeness, EverydayWord, ProfileBrand, ProfileWarning, Suggestion } from "@/lib/types";
+
+let idCounter = 0;
+const newId = () => `brand-${++idCounter}`; // client-only card identity; never sent to the API
+
+const without = <T,>(m: Record<string, T>, id: string) => Object.fromEntries(Object.entries(m).filter(([k]) => k !== id)) as Record<string, T>;
 
 type Props = {
   name: string | null; // null = new set
@@ -43,10 +48,13 @@ export function BrandProfileForm({ name, initial, stale, existingNames, suggestA
   const [dialog, setDialog] = useState<"delete" | "detach" | null>(null);
   const [busy, setBusy] = useState(false);
   // Suggestions and descriptions are per brand card (by index) and never saved.
-  const [suggestions, setSuggestions] = useState<Record<number, Suggestion>>({});
-  const [descriptions, setDescriptions] = useState<Record<number, string>>({});
-  const [suggesting, setSuggesting] = useState<number | null>(null);
-  const [suggestError, setSuggestError] = useState<string | null>(null);
+  const [ids, setIds] = useState<string[]>(() => initial.brands.map(newId)); // parallel to profile.brands
+  const idsRef = useRef(ids);
+  useEffect(() => { idsRef.current = ids; }, [ids]);
+  const [suggestions, setSuggestions] = useState<Record<string, Suggestion>>({});
+  const [descriptions, setDescriptions] = useState<Record<string, string>>({});
+  const [suggesting, setSuggesting] = useState<string | null>(null);
+  const [suggestErrors, setSuggestErrors] = useState<Record<string, string>>({});
 
   const snapshot = JSON.stringify({ n: setName, p: profile });
   useEffect(() => onDirtyChange(snapshot !== savedSnapshot), [snapshot, savedSnapshot, onDirtyChange]);
@@ -91,29 +99,39 @@ export function BrandProfileForm({ name, initial, stale, existingNames, suggestA
       <p key={w.message} className="text-xs text-amber-800">{w.message}</p>
     ));
 
-  async function suggest(i: number) {
-    setSuggestError(null);
-    setSuggesting(i);
+  async function suggest(id: string) {
+    const i = ids.indexOf(id);
+    if (i < 0) return;
+    setSuggestErrors((m) => without(m, id));
+    setSuggesting(id);
     try {
-      const r = await api.suggestBrandProfile(profile.brands[i].name.trim(), (descriptions[i] ?? "").trim());
-      setSuggestions((s) => ({ ...s, [i]: r.suggestion }));
+      const r = await api.suggestBrandProfile(profile.brands[i].name.trim(), (descriptions[id] ?? "").trim());
+      if (idsRef.current.includes(id)) setSuggestions((s) => ({ ...s, [id]: r.suggestion })); // card may be gone
     } catch (e) {
-      setSuggestError(errorMessage(e));
+      if (idsRef.current.includes(id)) setSuggestErrors((m) => ({ ...m, [id]: errorMessage(e) }));
     } finally {
-      setSuggesting(null);
+      setSuggesting((cur) => (cur === id ? null : cur));
     }
   }
 
-  // Per-index state must follow its card when an earlier brand card is removed.
-  const shiftAfter = <T,>(m: Record<number, T>, removed: number) =>
-    Object.fromEntries(
-      Object.entries(m).filter(([k]) => Number(k) !== removed).map(([k, v]) => [Number(k) > removed ? Number(k) - 1 : Number(k), v]),
-    ) as Record<number, T>;
   function removeBrand(i: number) {
+    const id = ids[i];
     setProfile((p) => ({ ...p, brands: p.brands.filter((_, j) => j !== i) }));
-    setSuggestions((s) => shiftAfter(s, i));
-    setDescriptions((d) => shiftAfter(d, i));
+    setIds((a) => a.filter((_, j) => j !== i));
+    setSuggestions((m) => without(m, id));
+    setDescriptions((m) => without(m, id));
+    setSuggestErrors((m) => without(m, id));
   }
+
+  const suggestedPeople = useMemo(() => {
+    const seen = new Set<string>();
+    const out: { name: string; common: boolean }[] = [];
+    for (const id of ids) for (const x of suggestions[id]?.people ?? []) {
+      const k = x.name.trim().toLowerCase();
+      if (k && !seen.has(k)) { seen.add(k); out.push(x); }
+    }
+    return out;
+  }, [ids, suggestions]);
 
   async function save() {
     setError(null);
@@ -171,10 +189,11 @@ export function BrandProfileForm({ name, initial, stale, existingNames, suggestA
         {profile.brands.map((b, i) => {
           const n = i + 1;
           const w = b.everyday_word;
-          const sg = suggestions[i];
+          const id = ids[i];
+          const sg = suggestions[id];
           const sw = sg?.everyday_word ?? null;
           return (
-            <li key={i} className="space-y-4 rounded-md border p-4">
+            <li key={id} className="space-y-4 rounded-md border p-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-base">{i === 0 ? "Brand" : `Brand ${n}`}</h3>
                 {profile.brands.length > 1 && (
@@ -203,16 +222,16 @@ export function BrandProfileForm({ name, initial, stale, existingNames, suggestA
               <div className="flex flex-wrap items-end gap-3">
                 <div className="min-w-64 flex-1 space-y-1.5">
                   <Label htmlFor={`b${i}-desc`}>One-line description (for Suggest)</Label>
-                  <Input className="h-9" id={`b${i}-desc`} aria-label={`Brand ${n} description`} value={descriptions[i] ?? ""}
-                    onChange={(e) => setDescriptions((d) => ({ ...d, [i]: e.target.value }))}
+                  <Input className="h-9" id={`b${i}-desc`} aria-label={`Brand ${n} description`} value={descriptions[id] ?? ""}
+                    onChange={(e) => setDescriptions((d) => ({ ...d, [id]: e.target.value }))}
                     placeholder="e.g. Indian luggage maker, founder Sudhir Jatia" />
                 </div>
-                <Button variant="outline" className="h-9" disabled={!suggestAvailable || !b.name.trim() || suggesting !== null} onClick={() => suggest(i)}>
-                  {suggesting === i ? "Suggesting..." : "Suggest"}
+                <Button variant="outline" className="h-9" disabled={!suggestAvailable || !b.name.trim() || suggesting !== null} onClick={() => suggest(id)}>
+                  {suggesting === id ? "Suggesting..." : "Suggest"}
                 </Button>
               </div>
-              {!suggestAvailable && <p className="text-xs text-neutral-500">Suggest needs ANTHROPIC_API_KEY in repscore-pipeline/.env.</p>}
-              {suggestError && <p role="alert" className="text-sm text-red-700">{suggestError}</p>}
+              {i === 0 && !suggestAvailable && <p className="text-xs text-neutral-500">Suggest needs ANTHROPIC_API_KEY in repscore-pipeline/.env.</p>}
+              {suggestErrors[id] && <p role="alert" className="text-sm text-red-700">{suggestErrors[id]}</p>}
               {sg?.notes && <p className="rounded-md bg-neutral-50 p-2 text-sm text-neutral-700">{sg.notes}</p>}
               <TagInput
                 id={`b${i}-always`}
@@ -285,7 +304,10 @@ export function BrandProfileForm({ name, initial, stale, existingNames, suggestA
           );
         })}
       </ol>
-      <Button variant="outline" onClick={() => setProfile((p) => ({ ...p, brands: [...p.brands, emptyBrand()] }))}>Add brand</Button>
+      <Button variant="outline" onClick={() => {
+        setProfile((p) => ({ ...p, brands: [...p.brands, emptyBrand()] }));
+        setIds((a) => [...a, newId()]);
+      }}>Add brand</Button>
 
       <div className="space-y-3 rounded-md border p-4">
         <h3 className="text-base">People</h3>
@@ -311,14 +333,12 @@ export function BrandProfileForm({ name, initial, stale, existingNames, suggestA
             <Button variant="ghost" size="sm" onClick={() => setProfile((p) => ({ ...p, people: p.people.filter((_, j) => j !== i) }))}>Remove</Button>
           </div>
         ))}
-        {Object.entries(suggestions).map(([k, s]) => (
-          <SuggestChips key={k} note="verify - from AI memory" allLabel="Add all people"
-            values={s.people.map((x) => x.name)} current={profile.people.map((x) => x.name)}
-            onAdd={(names) => setProfile((p) => ({
-              ...p,
-              people: [...p.people, ...s.people.filter((x) => names.includes(x.name))],
-            }))} />
-        ))}
+        <SuggestChips note="verify - from AI memory" allLabel="Add all people"
+          values={suggestedPeople.map((x) => x.name)} current={profile.people.map((x) => x.name)}
+          onAdd={(names) => setProfile((p) => ({
+            ...p,
+            people: [...p.people, ...suggestedPeople.filter((x) => names.includes(x.name))],
+          }))} />
         <Button variant="outline" size="sm" onClick={() => setProfile((p) => ({ ...p, people: [...p.people, { name: "", common: false }] }))}>Add person</Button>
       </div>
 
