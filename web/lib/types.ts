@@ -73,6 +73,7 @@ export interface TryEntry {
   cut_after: boolean;
   snippet: string;
   reason?: string;
+  owner?: number | null; // elsewhere entries: index of the brand the mention belongs to
 }
 export interface TestResult {
   brand: number;

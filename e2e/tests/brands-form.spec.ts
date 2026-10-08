@@ -68,11 +68,17 @@ test("create a set with people and test sentences, save, reload, add a brand, ve
   await expect(page.getByTestId("tests-brand-1").getByRole("listitem")).toHaveCount(4);
   await expect(results(page, 1).filter({ hasText: "Passes" })).toHaveCount(4);
 
+  // A new brand without a name does not stop the other brands' sentences from being checked.
   await page.getByRole("button", { name: "Add another brand" }).click();
+  await addTest(page, 2, "Geniux luggage is light", "Match");
+  await expect(page.getByText("Name this brand to check its sentences.")).toBeVisible();
+  await expect(results(page, 2)).toHaveText(["Not checked"]);
+  await addTag(page, "Brand 1 confirming words", "bag");
+  await expect(results(page, 1).filter({ hasText: "Passes" })).toHaveCount(4);
+  await expect(page.getByText("Brand 2: Brand name")).toHaveCount(0); // the API's refusal of an unnamed brand is never shown
   await page.getByLabel("Brand 2 name", { exact: true }).fill("Geniux");
   await page.getByLabel("Brand 2 common word yes").check();
   await addTag(page, "Brand 2 confirming words", "luggage");
-  await addTest(page, 2, "Geniux luggage is light", "Match");
   await expect(results(page, 2)).toHaveText(["Passes"]);
   await addTest(page, 1, "Geniux luggage is light", "Match");
   const geniuxUnderZeta = testRow(page, 1, "Geniux luggage is light");
@@ -120,6 +126,10 @@ test("switching common word back to No clears the hidden fields so the set saves
   await page.getByRole("button", { name: "Save set" }).click();
   await expect(page.getByRole("status")).toContainText("Saved");
   await expect(page.getByRole("alert").filter({ hasText: /\S/ })).toHaveCount(0); // Next.js keeps an empty route announcer alert
+
+  await page.getByRole("button", { name: "Delete set" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Delete" }).click();
+  await expect(setButton(page, name)).toHaveCount(0);
 });
 
 test("the form refuses a hand-written set's name", async ({ page }) => {

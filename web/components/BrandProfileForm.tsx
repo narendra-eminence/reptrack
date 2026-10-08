@@ -9,15 +9,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { api, errorMessage } from "@/lib/api";
-import { cleanProfile, emptyBrand, emptyExclusions } from "@/lib/brandProfile";
-import type { BrandProfile, Exclusions, Person, ProfileBrand, ProfileWarning, TestResult, TestSentence } from "@/lib/types";
+import { type CheckResult, cleanProfile, emptyBrand, emptyExclusions, namedBrands, remapCheck } from "@/lib/brandProfile";
+import type { BrandProfile, Exclusions, Person, ProfileBrand, TestResult, TestSentence } from "@/lib/types";
 
 let idCounter = 0;
 const newId = () => `brand-${++idCounter}`; // client-only card identity; never sent to the API
 
 const FIELDS_WITH_WARNINGS = new Set(["confirming_words", "phrases"]);
-
-type Check = { warnings: ProfileWarning[]; tests: TestResult[] };
 
 type Props = {
   name: string | null; // null = new set
@@ -53,28 +51,31 @@ export function BrandProfileForm({ name, initial, stale, existingNames, onSaved,
   const [profile, setProfile] = useState<BrandProfile>(initial);
   const [savedSnapshot, setSavedSnapshot] = useState(() => JSON.stringify({ n: name ?? "", p: initial }));
   const [ids, setIds] = useState<string[]>(() => initial.brands.map(newId)); // parallel to profile.brands
-  const [check, setCheck] = useState<Check | null>(null);
+  const [check, setCheck] = useState<CheckResult | null>(null);
   const [checkError, setCheckError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const snapshot = JSON.stringify({ n: setName, p: profile });
   useEffect(() => onDirtyChange(snapshot !== savedSnapshot), [snapshot, savedSnapshot, onDirtyChange]);
 
-  // Check on every change (debounced): warnings next to fields and the result of every test sentence.
+  // Check on every change (debounced): warnings next to fields and the result of every test sentence. Brands without
+  // a name are left out (the API would refuse them) and the other cards keep their results.
   const clean = useMemo(() => cleanProfile(profile), [profile]);
-  const hasBrandName = profile.brands.some((b) => b.name.trim() !== "");
+  const named = useMemo(() => namedBrands(clean), [clean]);
+  const hasBrandName = named.indexes.length > 0;
   useEffect(() => {
-    if (!hasBrandName) return; // nothing to check yet
+    if (!named.indexes.length) return; // nothing to check yet
     let alive = true; // ignore responses for a profile that has since changed
     const t = setTimeout(() => {
       api
-        .checkBrandProfile(clean)
+        .checkBrandProfile(named.profile)
         .then((r) => {
           if (!alive) return;
-          setCheck(r);
+          setCheck(remapCheck(r, named.indexes));
           setCheckError(null);
         })
         .catch((e) => {
@@ -87,7 +88,7 @@ export function BrandProfileForm({ name, initial, stale, existingNames, onSaved,
       alive = false;
       clearTimeout(t);
     };
-  }, [clean, hasBrandName]);
+  }, [named]);
 
   const updateBrand = (i: number, patch: Partial<ProfileBrand>) =>
     setProfile((p) => ({ ...p, brands: p.brands.map((b, j) => (j === i ? { ...b, ...patch } : b)) }));
@@ -127,9 +128,11 @@ export function BrandProfileForm({ name, initial, stale, existingNames, onSaved,
   function removeBrand(i: number) {
     setProfile((p) => ({ ...p, brands: p.brands.filter((_, j) => j !== i) }));
     setIds((a) => a.filter((_, j) => j !== i));
+    setCheck(null); // its indexes no longer line up with the cards
   }
 
   async function save() {
+    if (saving) return;
     setError(null);
     setSaved(null);
     const n = setName.trim();
@@ -138,6 +141,7 @@ export function BrandProfileForm({ name, initial, stale, existingNames, onSaved,
       setError(`A set named ${n} already exists - pick another name.`);
       return;
     }
+    setSaving(true);
     try {
       const res = await api.saveBrandProfile(n, clean, savedName === null);
       setSavedSnapshot(sentSnapshot);
@@ -146,6 +150,8 @@ export function BrandProfileForm({ name, initial, stale, existingNames, onSaved,
       onSaved(res.name, clean);
     } catch (e) {
       setError(errorMessage(e));
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -352,8 +358,10 @@ export function BrandProfileForm({ name, initial, stale, existingNames, onSaved,
                   brand={n}
                   tests={b.tests}
                   onChange={(tests) => updateBrand(i, { tests })}
+                  brandNames={clean.brands.map((x) => x.name)}
                   resultFor={resultFor(i, b.tests)}
-                  unchecked={!hasBrandName || checkError !== null}
+                  unnamed={!clean.brands[i].name}
+                  unchecked={checkError !== null}
                 />
               </div>
             </li>
@@ -364,7 +372,7 @@ export function BrandProfileForm({ name, initial, stale, existingNames, onSaved,
 
       {hasBrandName && checkError && <p className="text-sm text-neutral-600">{checkError}</p>}
       <div className="flex flex-wrap items-center gap-3">
-        <Button onClick={save} disabled={!setName.trim()}>Save set</Button>
+        <Button onClick={save} disabled={!setName.trim() || saving}>{saving ? "Saving..." : "Save set"}</Button>
         {savedName && <Button variant="outline" onClick={() => setDeleteOpen(true)}>Delete set</Button>}
       </div>
       {error && <p role="alert" className="text-sm text-red-700">{error}</p>}

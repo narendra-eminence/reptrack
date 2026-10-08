@@ -15,7 +15,7 @@ function Highlighted({ e, muted = false }: { e: TryEntry; muted?: boolean }) {
 }
 
 /** Why a test sentence did or did not match: what counted, what did not and why, and what counted for another brand. */
-export function MatchExplanation({ result }: { result: TestResult }) {
+export function MatchExplanation({ result, brandNames }: { result: TestResult; brandNames: string[] }) {
   const { counted, not_counted: notCounted, elsewhere } = result;
   if (!counted.length && !notCounted.length && !elsewhere.length) {
     return <p className="text-xs text-neutral-500">No mention of this brand in the sentence.</p>;
@@ -36,7 +36,7 @@ export function MatchExplanation({ result }: { result: TestResult }) {
       ))}
       {elsewhere.map((e, i) => (
         <p key={`e-${e.offset}-${i}`}>
-          <span className="text-neutral-500">Counted for {e.brand}: </span>
+          <span className="text-neutral-500">Counted for {(e.owner != null && brandNames[e.owner]) || e.brand}: </span>
           <Highlighted e={e} />
         </p>
       ))}

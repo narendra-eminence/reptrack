@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { addValues, cleanProfile, emptyBrand, emptyExclusions, emptyProfile, missingValues, splitEntries } from "./brandProfile";
+import {
+  addValues, cleanProfile, emptyBrand, emptyExclusions, emptyProfile, missingValues, namedBrands, remapCheck, splitEntries,
+} from "./brandProfile";
 import type { BrandProfile } from "./types";
 
 describe("brandProfile helpers", () => {
@@ -64,5 +66,32 @@ describe("brandProfile helpers", () => {
     p.brands[0].common_word = false;
     cleanProfile(p);
     expect(JSON.stringify({ brands: [{ ...p.brands[0], common_word: true }] })).toBe(before);
+  });
+});
+
+describe("checking only named brands", () => {
+  const entry = { brand: "B", offset: 0, text: "B", before: "", after: "", cut_before: false, cut_after: false, snippet: "B" };
+
+  it("drops unnamed brands and keeps the original indexes", () => {
+    const p: BrandProfile = { brands: [{ ...emptyBrand(), name: "A" }, emptyBrand(), { ...emptyBrand(), name: " B " }] };
+    const { profile, indexes } = namedBrands(p);
+    expect(profile.brands.map((b) => b.name)).toEqual(["A", " B "]);
+    expect(indexes).toEqual([0, 2]);
+  });
+
+  it("maps result, warning and owner indexes back to the full list", () => {
+    const out = remapCheck(
+      {
+        warnings: [{ brand: 1, field: "phrases", message: "m" }, { brand: null, field: "x", message: "n" }],
+        tests: [{
+          brand: 0, index: 0, text: "t", expect: "match", passed: false, counted: [], not_counted: [],
+          elsewhere: [{ ...entry, owner: 1 }, { ...entry, owner: null }],
+        }],
+      },
+      [0, 2],
+    );
+    expect(out.warnings.map((w) => w.brand)).toEqual([2, null]);
+    expect(out.tests[0].brand).toBe(0);
+    expect(out.tests[0].elsewhere.map((e) => e.owner)).toEqual([2, null]);
   });
 });

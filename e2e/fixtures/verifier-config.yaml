@@ -25,10 +25,7 @@ brands:
   acme:
     - name: Acme
       pattern: 'Acme|[#@]acme\w*'
-  other:
-    - name: Other Brand
-      pattern: 'Other Brand'
-  # One hand-written set per Playwright project, so each project can delete its own.
+  # Hand-written sets per viewport project, so each project's brands.spec.ts run deletes its own.
   other-desktop-1280:
     - name: Other Brand
       pattern: 'Other Brand'

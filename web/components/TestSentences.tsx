@@ -42,15 +42,18 @@ function ExpectSelect(props: { value: Expect; onChange: (v: Expect) => void; "ar
 
 /**
  * A brand's saved test sentences with their live results. `resultFor` returns the latest check result for a row,
- * or null while it is pending; `unchecked` means the last check failed, so no result is coming.
+ * or null while it is pending; `unchecked` means the last check failed, and `unnamed` that this brand has no name
+ * yet, so no result is coming.
  */
 export function TestSentences({
-  brand, tests, onChange, resultFor, unchecked,
+  brand, tests, onChange, brandNames, resultFor, unnamed, unchecked,
 }: {
   brand: number; // 1-based, for labels
   tests: TestSentence[];
   onChange: (tests: TestSentence[]) => void;
+  brandNames: string[];
   resultFor: (index: number) => TestResult | null;
+  unnamed: boolean;
   unchecked: boolean;
 }) {
   const [text, setText] = useState("");
@@ -71,10 +74,11 @@ export function TestSentences({
         <p className="text-xs text-neutral-500">
           Sentences that should or should not count as this brand. They are saved with the set and checked on every change.
         </p>
+        {unnamed && tests.length > 0 && <p className="mt-1 text-xs text-amber-800">Name this brand to check its sentences.</p>}
       </div>
       <ul data-testid={`tests-brand-${brand}`} className={cn("space-y-2", !tests.length && "hidden")}>
         {tests.map((t, i) => {
-          const result = resultFor(i);
+          const result = unnamed ? null : resultFor(i);
           return (
             <li key={i} className="space-y-2 rounded-md border p-3">
               <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
@@ -85,7 +89,7 @@ export function TestSentences({
                     value={t.expect}
                     onChange={(v) => onChange(tests.map((x, j) => (j === i ? { ...x, expect: v } : x)))}
                   />
-                  <ResultBadge result={result} unchecked={unchecked} />
+                  <ResultBadge result={result} unchecked={unnamed || unchecked} />
                   <Button
                     variant="ghost"
                     size="sm"
@@ -96,7 +100,7 @@ export function TestSentences({
                   </Button>
                 </div>
               </div>
-              {result && <MatchExplanation result={result} />}
+              {result && <MatchExplanation result={result} brandNames={brandNames} />}
             </li>
           );
         })}

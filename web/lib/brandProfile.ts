@@ -1,4 +1,4 @@
-import type { BrandProfile, Exclusions, ProfileBrand } from "./types";
+import type { BrandProfile, Exclusions, ProfileBrand, ProfileWarning, TestResult } from "./types";
 
 export const emptyExclusions = (): Exclusions => ({ followed_by: [], preceded_by: [], nearby: [], phrases: [] });
 
@@ -64,6 +64,27 @@ export function cleanProfile(p: BrandProfile): BrandProfile {
         .map((x) => ({ name: x.name.trim(), require_brand_nearby: x.require_brand_nearby }))
         .filter((x) => x.name),
       tests: b.tests.map((t) => ({ text: t.text.trim(), expect: t.expect })).filter((t) => t.text),
+    })),
+  };
+}
+
+export type CheckResult = { warnings: ProfileWarning[]; tests: TestResult[] };
+
+/** The brands that have a name, plus their indexes in the full list. Unnamed brands cannot be checked yet. */
+export function namedBrands(p: BrandProfile): { profile: BrandProfile; indexes: number[] } {
+  const indexes = p.brands.flatMap((b, i) => (b.name.trim() ? [i] : []));
+  return { profile: { brands: indexes.map((i) => p.brands[i]) }, indexes };
+}
+
+/** Map brand indexes in a check of the named brands back to the full brand list. */
+export function remapCheck(r: CheckResult, indexes: number[]): CheckResult {
+  const at = (i: number | null | undefined) => (i === null || i === undefined ? null : indexes[i] ?? null);
+  return {
+    warnings: r.warnings.map((w) => ({ ...w, brand: at(w.brand) })),
+    tests: r.tests.map((t) => ({
+      ...t,
+      brand: at(t.brand) ?? t.brand,
+      elsewhere: t.elsewhere.map((e) => ({ ...e, owner: at(e.owner) })),
     })),
   };
 }
