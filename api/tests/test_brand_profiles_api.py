@@ -103,3 +103,35 @@ def test_check_validation_error_is_422(settings):
 def test_removed_endpoints(settings, method, path):
     with make_client(settings, search_one=FakeSearch()) as c:
         assert c.request(method.upper(), path).status_code in (404, 405)
+
+
+@pytest.mark.parametrize(
+    "method,path",
+    [
+        ("get", "/api/brand-profiles/acme"),
+        ("put", "/api/brand-profiles/zeta"),
+    ],
+)
+def test_malformed_config_is_422_on_profile_routes(settings, tmp_path, method, path):
+    from pipeline_api.settings import Settings
+
+    cfg = tmp_path / "verifier" / "config_bad.yaml"
+    cfg.parent.mkdir(parents=True, exist_ok=True)
+    cfg.write_text("invalid: yaml: content: [")
+    bad = Settings(
+        company_monitor_dir=settings.company_monitor_dir,
+        url_verification_dir=settings.url_verification_dir,
+        verifier_config=cfg,
+        verifier_cache=tmp_path / "verifier" / "cache",
+        data_dir=tmp_path / "data",
+    )
+    with make_client(bad, search_one=FakeSearch()) as c:
+        body = {"profile": PROFILE, "create": True} if method == "put" else None
+        r = c.request(method.upper(), path, json=body)
+        assert r.status_code == 422 and r.json()["error"]
+
+
+def test_invalid_set_name_is_422(settings):
+    with make_client(settings, search_one=FakeSearch()) as c:
+        r = c.put("/api/brand-profiles/Bad Name", json={"profile": PROFILE, "create": True})
+        assert r.status_code == 422 and "set name" in r.json()["error"].lower()
