@@ -1,231 +1,166 @@
 # Simple Brand Form - Design
 
-Status: draft for review
+Status: revision 2, draft for review (revision 1, with Claude Suggest and a raw regex editor, was built on `feat/brand-profiles` and is superseded by this document)
 Date: 8 October 2026
 Owner: Narendra
 
 ## 1. Purpose
 
-Today a brand set is created on the Brands page by typing raw regular expressions: the pattern, the context words and the exclusions. Nobody on the team writes regex, so every new set is drafted by an AI and pasted in.
+Brand sets used to be written as raw regular expressions, which nobody on the team writes, so every new set was drafted by an AI and pasted in.
 
-This feature lets anyone who knows the brand create and later edit a set from a plain form, with no regex anywhere in the normal flow. The app turns the form answers into the existing rule format behind the scenes. A **Suggest** button asks Claude for aliases, context words and exclusion phrases, shown as plain-language chips the user can add.
+This feature makes the Brands page a **brand configuration system**: anyone who knows the brand describes it in plain language - names, hashtags, handles, whether the name is a common word, words that confirm it, words that rule it out, people, and test sentences - and the backend turns that into the existing rule format. The user never needs to know regex exists; regex is an implementation detail, like SQL behind a form.
 
-Success: a teammate who has never seen regex can set up a brand like "Safari" (a common word with a browser, a wildlife meaning and a luggage company) from the form alone, check it in the "Try these rules" panel, save it, and pick it in the Verify step.
+Success: a teammate who has never seen regex sets up "Safari" (a common word with a browser, a wildlife meaning and a luggage company) from the form alone, adds test sentences with the expected result, sees them all pass, saves, and picks the set in the Verify step.
 
 ## 2. Decisions taken
 
 | Question | Decision |
 |---|---|
-| Editing later | A form-made set reopens in the same form. The form answers are stored and the rules are rebuilt from them on every save. |
-| AI help | Manual form plus a Suggest button. Suggestions are plain text chips; nothing is added until the user clicks. |
-| Where answers live | A new `profiles:` section in url-verification `config.yaml`, next to `brands:`, written in the same atomic save. |
-| Where generation lives | url-verification `urlverify/profile.py`, one pure function, so the CLI and the app agree. |
-| Existing 12 sets | Untouched. They stay raw sets and open in the current raw editor. |
-| Escape hatch | "Switch to advanced editing" drops a set's profile and keeps its rules as raw rules. |
+| Editing later | A form-made set reopens in the same form. The answers are stored and the rules are rebuilt from them on every save. |
+| AI | None. No Suggest, no Anthropic dependency, no API key. |
+| Regex in the UI | Never shown: no generated-rules view, no raw regex editor, and the Verify step shows a plain summary instead of rules. |
+| Where answers live | `profiles:` in url-verification `config.yaml`, next to `brands:`, written in the same atomic save. |
+| Where generation lives | url-verification `urlverify/profile.py` (`build_rules`), so the CLI and the app agree. |
+| Brands per set | Several (main brand plus sub-brands or peers), each with its own people and test sentences. |
+| Test sentences | Saved with the brand, re-checked on every change, shown as pass/fail in plain language; saving warns but does not block when one fails. |
+| Existing 12 hand-written sets | Keep working for verification. Read-only in the app: the page explains they were written by hand and offers Delete only. |
+| Fixed behaviour (no fields) | A common-word brand name always matches exact capitals and needs a confirming word within about 15 words (100 characters). |
 
 ## 3. What does not change
 
-- The `BrandRule` format (six fields) and `BrandMatcher` in url-verification.
-- What verification runs: always the rules under `brands:`. Runs still snapshot those rules when they start.
-- The raw editor (`BrandEditor.tsx`) and `/api/brands` endpoints, apart from the additions in sections 6 and 7.
+- The verifier: the `brands:` section format (`BrandRule`, six fields) and `BrandMatcher`. Verification always runs the rules under `brands:`, and runs still snapshot those rules when they start.
+- `/api/brands` list and delete, and `/api/runs/{id}/verify` with its snapshot.
 
 ## 4. The profile (form answers)
-
-A profile describes one brand set. It has one or more brands (the main brand plus sub-brands or peers) and one People list.
 
 ```yaml
 profiles:
   safari:
     brands:
       - name: Safari
-        always: ['Safari Industries', 'SAFARIND', 'सफारी इंडस्ट्रीज']
-        handles: ['safaribags', 'safariluggage']
-        everyday_word:
-          word: Safari
-          exact_case: true
-          closeness: close          # close | nearby | paragraph
-          confirm: ['luggage', 'bag', 'trolley', 'suitcase', 'backpack', 'NSE', 'BSE', 'share price']
-          not_followed_by: ['browser', 'extension', 'tab', 'park', 'tour', 'lodge']
-          not_preceded_by: ['Apple', 'iOS', 'macOS', 'wildlife', 'jungle', 'jeep']
-          not_in_sentence_with: ['Masai Mara', 'Serengeti', 'Kruger', 'Ranthambore']
-          ignore_phrases: []
+        description: Indian luggage and travel-products company
+        aliases: ['Safari Industries', 'SAFARIND', 'सफारी इंडस्ट्रीज']
+        hashtags: ['safaribags', 'safariluggage']
+        handles: ['safari_luggage']
+        common_word: true
+        confirming_words: ['luggage', 'bag', 'trolley', 'NSE', 'share price']
+        exclusions:
+          followed_by: ['browser', 'tab', 'park', 'tour', 'lodge']
+          preceded_by: ['Apple', 'iOS', 'wildlife', 'jungle']
+          nearby: ['Serengeti', 'Kruger', 'Ranthambore']
+          phrases: ['Safari Rally']
+        people:
+          - name: Sudhir Jatia
+            require_brand_nearby: false
+        tests:
+          - text: Safari Industries shares rose today
+            expect: match
+          - text: Safari browser released a new version
+            expect: no_match
+          - text: We went on a safari in Kruger
+            expect: no_match
       - name: Genius
-        always: []
-        handles: []
-        everyday_word:
-          word: Genius
-          exact_case: true
-          closeness: close
-          confirm: ['luggage', 'bag', 'trolley']
-    people:
-      - name: Sudhir Jatia
-        common: false
+        common_word: true
+        confirming_words: ['luggage', 'bag', 'trolley']
 ```
-
-Field meanings, as shown on the form:
 
 | Field | Form label | Notes |
 |---|---|---|
-| `name` | Brand name | Shown under "Brands Found". Unique within the set. |
-| `always` | Names that always mean this brand | Full names, tickers, other scripts. Optional if `everyday_word` is set. |
-| `handles` | Extra hashtags or handles | Leading `#` or `@` is stripped. Letters, digits and `_` only. |
-| `everyday_word` | Is the short name also an everyday word? | Absent means No. |
-| `word` | The everyday word | e.g. Safari, VIP, Basil |
-| `exact_case` | Match exact capitals | Default true. |
-| `closeness` | How close confirming words must be | Close, Nearby (default) or Same paragraph |
-| `confirm` | Words that confirm it's the brand | |
-| `not_followed_by` | Not the brand when followed by | |
-| `not_preceded_by` | Not the brand when preceded by | |
-| `not_in_sentence_with` | Not the brand in the same sentence as | |
-| `ignore_phrases` | Exact phrases to ignore | e.g. Ritz-Carlton, Vaani Kapoor, St Basil |
-| `people[].name` | Leader name | |
-| `people[].common` | Common name - only count when the brand is mentioned nearby | Default false. |
+| `name` | Brand name | Shown under "Brands Found". Unique within the set. Always matched, unless `common_word` is true. |
+| `description` | Description | A note for people; not used for matching. Up to 500 characters. |
+| `aliases` | Other brand names / aliases | Full names, tickers, other scripts. Always counted. |
+| `hashtags` | Hashtags | Without `#` (a leading `#` is stripped). Letters, digits and `_`. |
+| `handles` | Social handles | Without `@` (a leading `@` is stripped). Letters, digits and `_`. |
+| `common_word` | Is the brand name a common word? | Default false. When true, the four fields below apply. |
+| `confirming_words` | Words that confirm this is the brand | |
+| `exclusions.followed_by` | Not the brand: after the brand name | |
+| `exclusions.preceded_by` | Not the brand: before the brand name | |
+| `exclusions.nearby` | Not the brand: nearby, in the same sentence | |
+| `exclusions.phrases` | Exact phrases to ignore | e.g. Ritz-Carlton, Vaani Kapoor |
+| `people[].name` | Person | |
+| `people[].require_brand_nearby` | Only count when the brand is nearby | Default false. |
+| `tests[].text` | Test sentence | Up to 1000 characters; at most 50 per brand. |
+| `tests[].expect` | Expected result | `match` or `no_match` |
 
-All list fields are optional and default to empty. Every value is plain text; the user never types regex.
+All list fields are optional. Every value is plain text. Each value is 1-200 characters after trimming and must contain at least one letter or digit.
 
 ### Validation
 
-`validate_profile` rejects, with a message naming the field:
+`validate_profile` rejects, with a message using the form labels:
 
-- a set name that fails the existing `NAME_RE`;
 - no brands, or two brands with the same name (case-insensitive);
-- a brand with neither `always` nor `everyday_word`;
-- an empty or whitespace-only value in any list, or a duplicate within a list (case-insensitive);
-- a handle with characters other than letters, digits and `_`;
-- any value longer than 200 characters;
-- an unknown `closeness` or an unknown key anywhere in the profile.
+- an empty name, or an invalid value in any list, or a duplicate within a list (case-insensitive), or two people with the same name within a brand;
+- a hashtag or handle with characters other than letters, digits and `_`;
+- `confirming_words` or `exclusions` values on a brand whose `common_word` is false (the form clears them when the box is unticked);
+- an unknown `expect` or an unknown key anywhere.
 
 It returns warnings (shown in the form, not blocking save):
 
-- an everyday word with no confirming words of its own and no automatic ones (section 5), meaning every use of the word counts;
-- an `ignore_phrases` entry that does not contain the everyday word (case-insensitive), meaning it can never block a hit.
+- a common-word brand with nothing to confirm it (no confirming words and no automatic ones, section 5), meaning every use of the word counts;
+- an exact phrase to ignore that does not contain the brand name, meaning it can never block a mention.
 
 ## 5. Building rules from a profile
 
-`build_rules(profile) -> BuildResult` is a pure function in `urlverify/profile.py`. `BuildResult` holds `rules: list[BrandRule]`, `warnings: list[str]` and `labels: dict[str, str]`, a plain-language label for each generated exclusion regex (used in section 7).
+`build_rules(profile) -> BuildResult` stays a pure function in `urlverify/profile.py`. `BuildResult` holds `rules`, `warnings`, `labels` (plain-language label per generated exclusion) and `owners` (which brand each rule belongs to, for checking test sentences).
 
-### Helpers
+Helpers are unchanged from revision 1: `lit` (escaped literal, spaces and hyphens interchangeable), `tag` (hashtag/handle form for ASCII names), `SUFFIX` (`-backed`, `-owned`, ... with case-insensitive suffix words), scoped `(?i:...)` for exclusion words, `(?<!\w)...(?!\w)` boundaries on every user word in context and exclusions.
 
-- **lit(text):** split on whitespace and hyphens, `re.escape` each piece, join with `[\s-]+`. So "Ritz-Carlton" also matches "Ritz Carlton".
-- **tag(text):** only when every piece is ASCII letters or digits: `[#@]` + pieces joined by `_?` + `\w*`. So "Safari Industries" gives `[#@]Safari_?Industries\w*`. Non-Latin names get no tag form.
-- **SUFFIX:** `(?:-(?:backed|owned|led|controlled|funded|managed))?`. Needed because the matcher treats `-` as part of a word, so "Kedaara-backed" would otherwise not match "Kedaara".
-- **plural(text):** `lit(text)` + `(?:s|es)?`
-- **any_of(values, plural):** `(?i:` + values joined by `|` + `)`, using `plural` or `lit`. The scoped `(?i:...)` keeps these words case-insensitive even when the rule is case-sensitive, so "Safari Browser" is excluded as well as "Safari browser".
+Per brand:
 
-### Rules per brand
+1. **Always rule** (case-insensitive, no context): the brand name (unless `common_word`) and every alias as `lit + SUFFIX` plus `tag`; each hashtag as `#value\w*`; each handle as `@value\w*`.
+2. **Common-word rule** (when `common_word`): pattern `lit(name) + SUFFIX`, exact capitals, context window 100, `require_context` = each confirming word (plurals allowed) plus the automatic context: every other brand name, every alias, and every person whose `require_brand_nearby` is false, across the whole set. Exclusions from `followed_by`, `preceded_by`, `nearby` (both directions, same sentence) and `phrases`, each labelled in plain language.
+3. **People rules**: `{name} leadership` for people with `require_brand_nearby: false` (always counted); `{name} leadership (brand nearby)` for the others, context window 150, `require_context` = this brand's name and aliases.
 
-1. **Always rule**, when `always` or `handles` is non-empty:
-   - `name`: brand name
-   - `pattern`: alternation of `lit(a) + SUFFIX` and `tag(a)` for each `always` entry, plus `[#@]handle\w*` for each handle
-   - case-insensitive, no context, no exclusions
-2. **Everyday-word rule**, when `everyday_word` is set. With `W = lit(word)`:
-   - `name`: brand name
-   - `pattern`: `W + SUFFIX`
-   - `case_sensitive`: `exact_case`
-   - `context_window`: close 60, nearby 100, paragraph 2000. The matcher works paragraph by paragraph, so 2000 means the whole paragraph in practice.
-   - `require_context`: `\b` + `plural(c)` + `\b` for each `confirm` entry, plus `lit()` of every brand name, every `always` entry and every person name whose "common name" box is not ticked. Common names are left out because a name like "Raj" would otherwise confirm the everyday word on its own ("Raj booked a Safari trip"); they only count as leaders when the brand is nearby, see below. These automatic entries mirror today's hand-written sets, where Safari's context includes "Safari Industries", "Genius" and "Sudhir Jatia".
-   - `exclude`:
-     - `not_followed_by`: `W[\s-]+` + `any_of(values, plural)` + `\b`, labelled "followed by browser, tab, ..."
-     - `not_preceded_by`: `any_of(values, plural)` + `[\s-]+W`, labelled "preceded by Apple, iOS, ..."
-     - `not_in_sentence_with`: both `W[^.!?\n]{0,60}T` and `T[^.!?\n]{0,60}W` with `T = any_of(values, lit)`, labelled "in the same sentence as Serengeti, Kruger, ..."
-     - `ignore_phrases`: `(?i:lit(p))` for each phrase, labelled "the phrase Ritz-Carlton"
+Rule order: brands in form order, then that brand's people. Order does not affect matching.
 
-### People rules
+### Test sentences
 
-With `first` = the first brand's name:
+`check_tests(profile) -> list[TestResult]` runs every brand's test sentences through a `BrandMatcher` built from the whole set's rules (so overlaps between brands resolve exactly as in verification), treating each sentence as one paragraph. A sentence **matches** when at least one counted mention belongs to that brand (its name, aliases, hashtags, handles, common word or people). Each result carries `brand`, `index`, `text`, `expect`, `passed`, and the plain-language explanation from `try_rules` (matched text with surrounding words, and the reason for each mention that did not count).
 
-- **`{first} leadership`**: alternation of `lit(name)` for people with `common: false`; case-insensitive; no context.
-- **`{first} leadership (common names)`**: alternation of `lit(name)` for people with `common: true`; `context_window: 150`; `require_context` = `lit()` of every brand name, `always` entry and everyday word in the set.
+## 6. Storage (url-verification)
 
-Each rule is omitted when it would be empty. Rule order in the output is brands in form order, then people. Order has no effect on matching (the matcher sorts by pattern length), but a stable order keeps saved YAML diffs readable.
-
-## 6. Storage (url-verification `urlverify/brands.py` and `config.py`)
-
-- **`save_profile(config_path, name, profile)`**: validates, builds rules, sets `doc["profiles"][name]` and `doc["brands"][name]` in the same document, and writes through the existing `_write` (re-validation, timestamped backup, atomic replace). Creates the `profiles:` section if missing. An existing key keeps its position.
-- **`load_profile(config_path, name)`**: returns the profile, or `None` for a raw set.
-- **`save_set`** (raw save) refuses a name that has a profile: "This set is managed by the simple form. Edit it there, or switch it to advanced editing first."
-- **`delete_set`** removes both `brands.<name>` and `profiles.<name>`.
-- **`detach_profile(config_path, name)`**: removes only `profiles.<name>`, keeping the rules. This is "Switch to advanced editing".
-- **`load_config`** validates `profiles:` with `validate_profile` and rejects a profile whose name has no entry under `brands:`. It does **not** fail when a profile's stored rules differ from what `build_rules` produces now, because a later change to `build_rules` would otherwise break every saved set. The rules under `brands:` are always what runs.
-- **`list_sets_detailed(config_path)`** returns, per set, its rules, `managed: bool`, and `stale: bool` (managed, and stored rules differ from a fresh `build_rules`). Stale means the YAML was hand-edited or the generator changed; re-saving from the form clears it.
-- **README:** the "Configuration" section of url-verification's README documents `profiles:` and the managed-set rules. Its stale list of configured sets is corrected at the same time.
+As in revision 1: `save_profile` writes `profiles.<name>` and `brands.<name>` in one atomic `_write` with a backup; `load_config` validates `profiles:` and rejects a profile without a brand set; stored rules that merely differ from a fresh build only mark the set `stale`; `delete_set` removes both; `list_sets_detailed` returns `rules`, `managed`, `stale`; `try_rules(rules, text, labels)` reports matched text, surrounding words, cut markers and plain reasons. `profile_from_dict` / `profile_to_dict` and the YAML writer use the revision 2 field names. No revision 1 profiles exist in the live `config.yaml`, so there is no migration.
 
 ## 7. API (repscore-pipeline)
 
-A new router `api/pipeline_api/routes/brand_profiles.py`. Pydantic models mirror the profile shape, with unknown keys forbidden.
-
 | Endpoint | Body | Returns |
 |---|---|---|
-| `GET /api/brand-profiles/{name}` | | `{profile}`, 404 for a raw set |
-| `PUT /api/brand-profiles/{name}` | `{profile, create}` | `{name, backup, warnings}`. 409 when `create` is true and the name exists, and 409 when the name is an existing raw set (the form never silently replaces hand-written rules). 422 with the validation message otherwise. |
-| `POST /api/brand-profiles/preview` | `{profile}` | `{rules, warnings}`, nothing saved |
-| `POST /api/brand-profiles/test` | `{profile, text}` | Same shape as `/api/brands/test`, with each "excluded by <regex>" reason replaced by "Not counted: <label>" from `BuildResult.labels` |
-| `POST /api/brand-profiles/suggest` | `{brand_name, description}` | `{suggestion}` (section 8). 503 when no API key is configured, 502 on a Claude error. |
-| `DELETE /api/brand-profiles/{name}/profile` | | `{name, backup}`. Switches the set to advanced editing. |
+| `GET /api/brands` | | Each set: `name`, `rules` (kept for the Verify step's "changed since this run" check; never rendered), `managed`, `stale`, and `profile` for managed sets |
+| `DELETE /api/brands/{name}` | | Unchanged |
+| `GET /api/brand-profiles/{name}` | | `{profile}`; 404 for a hand-written or unknown set |
+| `PUT /api/brand-profiles/{name}` | `{profile, create}` | `{name, backup, warnings, tests}`; 409 for a duplicate on create or an existing hand-written set; 422 with the form-worded validation message |
+| `POST /api/brand-profiles/check` | `{profile}` | `{warnings, tests}`, nothing saved. Replaces revision 1's preview and test endpoints. |
 
-Changes to existing endpoints:
+Removed: `PUT /api/brands/{name}` (raw save), `POST /api/brands/test`, `POST /api/brand-profiles/preview`, `/test`, `/suggest`, `DELETE /api/brand-profiles/{name}/profile`, `suggest_available` in health, and the Anthropic settings, `.env` loading and dependency.
 
-- `GET /api/brands` adds `managed` and `stale` to each set.
-- `PUT /api/brands/{name}` returns 409 for a managed set, with the message from `save_set`.
-- `GET /api/health` adds `suggest_available: bool` (true when `ANTHROPIC_API_KEY` is set), so the UI can disable the button.
+## 8. UI (repscore-pipeline `web/`)
 
-## 8. Suggest
+- **Brands page sidebar:** "New set" plus the list of sets. Form-made sets show a "Form" badge; hand-written sets show a muted "Hand-written" badge.
+- **Hand-written set selected:** "Written by hand before the form existed. It still works for verification. To change it, create it again with the form." plus Delete set. No rules are shown.
+- **The form** (`BrandProfileForm.tsx`), for a new or form-made set:
+  - Set name (locked once saved).
+  - One card per brand, with "Add another brand" and Remove: Brand name, Description, Other brand names / aliases, Hashtags, Social handles (tag inputs), and "Is the brand name a common word?" Yes/No. When Yes: Words that confirm this is the brand; Words that mean it is NOT the brand, split into After the brand name, Before the brand name, Nearby / same sentence; Exact phrases to ignore. Unticking clears those fields.
+  - People per brand: rows of Person and "Only count when brand is nearby", with Add person.
+  - Test configuration per brand: rows of sentence, Match / Not a match, and a live result ("Passes" / "Fails") with the plain explanation (highlighted match and its words, or why each mention did not count). An "Add test sentence" input appends a row.
+  - Warnings inline next to the field they concern.
+  - Footer: Save set and Delete set. A save with failing tests saves and shows "Saved. N test sentences do not give the expected result." The stale banner from revision 1 stays.
+  - Every change re-runs `POST /api/brand-profiles/check` (debounced, out-of-order responses ignored).
+- **Verify step:** the selected set shows a plain summary instead of rules: for a form set, each brand's names, hashtags, handles, confirming words, exclusions and people; for a hand-written set, the hand-written note. The job panel keeps "Brand set X, rules copied when this verification started" and the "changed since" notice, without listing rules.
+- Removed: Suggest UI, "Show generated rules", the raw regex editor, "New raw set", "Switch to advanced editing", and the free-text "Try these rules" panel (test sentences replace it).
 
-- **Settings:** `ANTHROPIC_API_KEY` and `PIPELINE_SUGGEST_MODEL` (default `claude-opus-5-5`) in the pipeline `.env`, read by `load_settings`. Missing key means Suggest is off; the app still starts.
-- **Dependency:** the `anthropic` Python SDK in `api/pyproject.toml`.
-- **Call:** one Messages API request with structured output, so the reply is JSON matching this shape:
+## 9. Testing
 
-  ```json
-  {
-    "always": ["..."],
-    "handles": ["..."],
-    "everyday_word": {
-      "word": "...", "exact_case": true, "closeness": "nearby",
-      "confirm": ["..."], "not_followed_by": ["..."], "not_preceded_by": ["..."],
-      "not_in_sentence_with": ["..."], "ignore_phrases": ["..."]
-    },
-    "people": [{"name": "...", "common": false}],
-    "notes": "one or two sentences on what the brand name collides with"
-  }
-  ```
+- `build_rules` unit tests for the revision 2 fields (name always matched when not common, hashtags `#` only, handles `@` only, per-brand people, `require_brand_nearby`), plus all revision 1 behaviour tests carried over.
+- Parity tests: the Safari, VIP, Basil and Multiples profiles rewritten in revision 2 form give the same counted mentions as today on the 39 sample sentences (same expected offsets and deliberate differences as now).
+- `check_tests` tests: match / no_match, mentions owned by another brand do not count, people count for their brand, explanations present.
+- Validation tests for every rule in section 4.
+- Storage tests updated to the revision 2 YAML.
+- API tests for every endpoint in section 7, including the removed endpoints returning 404/405.
+- Web unit tests for the profile helpers.
+- Playwright: create a Safari set with two brands, people and test sentences; see passes and a failing test go green after adding an exclusion; save (including the "N test sentences" notice); reload and edit; a hand-written set is read-only with Delete; the Verify step shows the plain summary and no regex anywhere on the page.
 
-  `everyday_word` is null when the name is not a common word. The system prompt explains the matching behaviour in plain terms (whole words only, exclusions must contain the word, what each field does) and includes the Safari profile from section 4 as a worked example. Timeout 60 seconds, no retries.
-- **Testing seam:** the route depends on a small `Suggester` protocol; tests inject a fake. The real implementation is the only code that imports `anthropic`.
-- **Safety of output:** the suggestion is passed through the same Pydantic model and `validate_profile` value rules before it is returned; invalid entries are dropped and counted in a `dropped` field.
-- **UI:** suggestions appear as chips under each matching field, never added automatically. Click a chip to add it, or "Add all" per field. People chips are labelled "verify - from AI memory". The `notes` text shows above the form. Suggest needs a brand name; the description is optional but encouraged ("Indian luggage maker, founder Sudhir Jatia").
+## 10. Out of scope
 
-## 9. UI (repscore-pipeline `web/`)
-
-- **`/brands` page:** "New set" opens the simple form. Sets in the sidebar show a small "Form" badge when managed. Selecting a managed set opens the form; selecting a raw set opens the current raw editor unchanged.
-- **New component `BrandProfileForm.tsx`:**
-  - Set name (locked once saved, as today).
-  - One card per brand with the section 4 fields. List fields are tag inputs: type and press Enter or comma, click x to remove. The everyday-word fields show only when the toggle is on.
-  - "Add brand" for sub-brands and peers; brand cards can be removed.
-  - People section: rows of name plus the "Common name" checkbox.
-  - Warnings from `preview` show inline next to the field they concern.
-  - "Advanced: show generated rules" toggle shows the `preview` rules read-only, using the existing `BrandRules.tsx`.
-  - Footer: Save set, Delete set, and "Switch to advanced editing" (confirm dialog explaining that the form answers are discarded and the set becomes raw rules).
-  - A stale banner when `stale` is true: "These rules differ from what the form would produce. Saving will replace them with the form's version."
-- **Try these rules:** the existing panel, pointed at `/api/brand-profiles/test` when the form is open, so reasons read "Not counted: followed by browser, tab, ..." rather than a regex.
-- **New `web/lib/brandProfile.ts`:** profile types, an empty-profile factory, and draft conversion, following `brandDraft.ts`.
-- **Verify step:** unchanged, apart from managed sets appearing in the dropdown like any other set.
-- The form follows the existing page's styles and layout, including at narrow widths.
-
-## 10. Testing
-
-- **`build_rules` unit tests (url-verification), the core of the suite:**
-  - Helper behaviour: escaping of special characters (`.`, `+`, `(`, `&`), hyphen and space equivalence, tag forms, the `-backed` suffix, non-Latin names with no tag form, scoped case-insensitivity in exclusions.
-  - **Parity tests:** profiles equivalent to today's hand-written `safari`, `basil`, `vip` and `multiples` sets, each run with `try_rules` over a list of sample sentences (for example "Safari Industries shares rose 4%", "open it in Safari browser", "a jeep safari in Kruger", "Safari launched a new trolley range", "Kedaara-backed firm"). The test asserts the generated rules count and drop the same mentions as the hand-written rules. This proves the form can express what the team already relies on.
-  - Warnings and validation messages for each rule in section 4.
-- **Storage tests:** `save_profile` writes both sections in one file write with one backup; `save_set` refuses a managed set; `delete_set` removes both; `detach_profile` keeps the rules; `load_config` rejects a profile without rules and an invalid profile; `stale` is computed correctly; comments elsewhere in `config.yaml` survive.
-- **API tests (repscore-pipeline):** each endpoint in section 7, including 404, 409, 422, 503, label substitution in `/test`, and Suggest with a fake `Suggester` (valid output, output with invalid entries dropped, Claude error).
-- **Web unit tests:** `brandProfile.ts` draft conversion.
-- **Playwright:** create "Safari" from the form, test a sentence and see a plain-language "Not counted" reason, save, reload, edit and save again, then see the set in the Verify dropdown. Suggest is stubbed at the network layer.
-- **Manual:** one real Suggest call against the Anthropic API, run only with the owner's go-ahead because it spends credits.
-
-## 11. Out of scope
-
-- Converting the 12 existing raw sets into profiles.
-- Claude fetching real articles to test draft rules.
-- Fixing `navana_ai`, whose `'Dhaka|Bangladesh|\bBD\b|Tk\.? ?\d'` exclusion never blocks anything because it does not cover the word "Navana". Tracked separately.
-- Per-brand domains, competitor lists as a separate concept, or any change to how verification scores pages.
+- Converting the 12 hand-written sets into form sets.
+- Any change to how verification scores pages.
+- Fixing `navana_ai`'s ineffective `Dhaka|Bangladesh` exclusion (tracked separately).
