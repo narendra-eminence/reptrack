@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any, Literal, Protocol
 
 import anthropic
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from urlverify.profile import normalise_handle, value_problem
 
 WORD_LISTS = ("confirm", "not_followed_by", "not_preceded_by", "not_in_sentence_with", "ignore_phrases")
@@ -107,6 +107,10 @@ class AnthropicSuggester:
             raise SuggestError(f"Could not reach Claude ({e}). Check the connection and try again.") from e
         except anthropic.APIStatusError as e:
             raise SuggestError(f"Claude returned an error ({e.status_code}): {e.message}") from e
+        except anthropic.APIError as e:
+            raise SuggestError(f"Claude's reply could not be read ({e.message}). Try again.") from e
+        except ValidationError as e:
+            raise SuggestError("Claude's reply could not be read. Try again.") from e
         if response.stop_reason == "refusal":
             raise SuggestError("Claude declined to make suggestions for this brand. Fill in the form by hand.")
         if response.parsed_output is None:
@@ -145,6 +149,10 @@ def sanitize_suggestion(raw: dict[str, Any]) -> tuple[dict[str, Any], int]:
             for key in WORD_LISTS:
                 word[key], n = _clean_list(word.get(key) or [])
                 dropped += n
+            # A phrase without the word itself can never block a mention of it
+            kept = [p for p in word["ignore_phrases"] if word["word"].casefold() in p.casefold()]
+            dropped += len(word["ignore_phrases"]) - len(kept)
+            word["ignore_phrases"] = kept
     people = []
     seen: set[str] = set()
     for person in raw.get("people") or []:
