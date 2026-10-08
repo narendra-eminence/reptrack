@@ -8,13 +8,14 @@ import {
 import { BrandRules } from "@/components/BrandRules";
 import { BrandTryPanel } from "@/components/BrandTryPanel";
 import { NativeSelect } from "@/components/NativeSelect";
+import { SuggestChips } from "@/components/SuggestChips";
 import { TagInput } from "@/components/TagInput";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api, errorMessage } from "@/lib/api";
-import { CLOSENESS_LABELS, cleanProfile, emptyBrand, emptyWord } from "@/lib/brandProfile";
-import type { BrandProfile, BrandRule, Closeness, EverydayWord, ProfileBrand, ProfileWarning } from "@/lib/types";
+import { CLOSENESS_LABELS, addValues, cleanProfile, emptyBrand, emptyWord } from "@/lib/brandProfile";
+import type { BrandProfile, BrandRule, Closeness, EverydayWord, ProfileBrand, ProfileWarning, Suggestion } from "@/lib/types";
 
 type Props = {
   name: string | null; // null = new set
@@ -28,7 +29,7 @@ type Props = {
   onDirtyChange: (dirty: boolean) => void;
 };
 
-export function BrandProfileForm({ name, initial, stale, existingNames, onSaved, onDeleted, onDetached, onDirtyChange }: Props) {
+export function BrandProfileForm({ name, initial, stale, existingNames, suggestAvailable, onSaved, onDeleted, onDetached, onDirtyChange }: Props) {
   const [savedName, setSavedName] = useState(name); // becomes the set's name after a new set is saved, so the form stays mounted
   const [setName, setSetName] = useState(name ?? "");
   const [profile, setProfile] = useState<BrandProfile>(initial);
@@ -41,6 +42,11 @@ export function BrandProfileForm({ name, initial, stale, existingNames, onSaved,
   const [saved, setSaved] = useState<string | null>(null);
   const [dialog, setDialog] = useState<"delete" | "detach" | null>(null);
   const [busy, setBusy] = useState(false);
+  // Suggestions and descriptions are per brand card (by index) and never saved.
+  const [suggestions, setSuggestions] = useState<Record<number, Suggestion>>({});
+  const [descriptions, setDescriptions] = useState<Record<number, string>>({});
+  const [suggesting, setSuggesting] = useState<number | null>(null);
+  const [suggestError, setSuggestError] = useState<string | null>(null);
 
   const snapshot = JSON.stringify({ n: setName, p: profile });
   useEffect(() => onDirtyChange(snapshot !== savedSnapshot), [snapshot, savedSnapshot, onDirtyChange]);
@@ -84,6 +90,30 @@ export function BrandProfileForm({ name, initial, stale, existingNames, onSaved,
     (hasBrandName ? warnings : []).filter((w) => w.brand === i && w.field === field).map((w) => (
       <p key={w.message} className="text-xs text-amber-800">{w.message}</p>
     ));
+
+  async function suggest(i: number) {
+    setSuggestError(null);
+    setSuggesting(i);
+    try {
+      const r = await api.suggestBrandProfile(profile.brands[i].name.trim(), (descriptions[i] ?? "").trim());
+      setSuggestions((s) => ({ ...s, [i]: r.suggestion }));
+    } catch (e) {
+      setSuggestError(errorMessage(e));
+    } finally {
+      setSuggesting(null);
+    }
+  }
+
+  // Per-index state must follow its card when an earlier brand card is removed.
+  const shiftAfter = <T,>(m: Record<number, T>, removed: number) =>
+    Object.fromEntries(
+      Object.entries(m).filter(([k]) => Number(k) !== removed).map(([k, v]) => [Number(k) > removed ? Number(k) - 1 : Number(k), v]),
+    ) as Record<number, T>;
+  function removeBrand(i: number) {
+    setProfile((p) => ({ ...p, brands: p.brands.filter((_, j) => j !== i) }));
+    setSuggestions((s) => shiftAfter(s, i));
+    setDescriptions((d) => shiftAfter(d, i));
+  }
 
   async function save() {
     setError(null);
@@ -141,12 +171,14 @@ export function BrandProfileForm({ name, initial, stale, existingNames, onSaved,
         {profile.brands.map((b, i) => {
           const n = i + 1;
           const w = b.everyday_word;
+          const sg = suggestions[i];
+          const sw = sg?.everyday_word ?? null;
           return (
             <li key={i} className="space-y-4 rounded-md border p-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-base">{i === 0 ? "Brand" : `Brand ${n}`}</h3>
                 {profile.brands.length > 1 && (
-                  <Button variant="ghost" size="sm" onClick={() => setProfile((p) => ({ ...p, brands: p.brands.filter((_, j) => j !== i) }))}>
+                  <Button variant="ghost" size="sm" onClick={() => removeBrand(i)}>
                     Remove brand
                   </Button>
                 )}
@@ -164,8 +196,24 @@ export function BrandProfileForm({ name, initial, stale, existingNames, onSaved,
                   onChange={(v) => updateBrand(i, { handles: v })}
                   placeholder="e.g. safaribags"
                   hint="Without # or @. Hashtags of the names below are added automatically."
-                />
+                >
+                  {sg && <SuggestChips values={sg.handles} current={b.handles} allLabel="Add all handles" onAdd={(v) => updateBrand(i, { handles: addValues(b.handles, v) })} />}
+                </TagInput>
               </div>
+              <div className="flex flex-wrap items-end gap-3">
+                <div className="min-w-64 flex-1 space-y-1.5">
+                  <Label htmlFor={`b${i}-desc`}>One-line description (for Suggest)</Label>
+                  <Input className="h-9" id={`b${i}-desc`} aria-label={`Brand ${n} description`} value={descriptions[i] ?? ""}
+                    onChange={(e) => setDescriptions((d) => ({ ...d, [i]: e.target.value }))}
+                    placeholder="e.g. Indian luggage maker, founder Sudhir Jatia" />
+                </div>
+                <Button variant="outline" className="h-9" disabled={!suggestAvailable || !b.name.trim() || suggesting !== null} onClick={() => suggest(i)}>
+                  {suggesting === i ? "Suggesting..." : "Suggest"}
+                </Button>
+              </div>
+              {!suggestAvailable && <p className="text-xs text-neutral-500">Suggest needs ANTHROPIC_API_KEY in repscore-pipeline/.env.</p>}
+              {suggestError && <p role="alert" className="text-sm text-red-700">{suggestError}</p>}
+              {sg?.notes && <p className="rounded-md bg-neutral-50 p-2 text-sm text-neutral-700">{sg.notes}</p>}
               <TagInput
                 id={`b${i}-always`}
                 label="Names that always mean this brand"
@@ -173,7 +221,9 @@ export function BrandProfileForm({ name, initial, stale, existingNames, onSaved,
                 values={b.always}
                 onChange={(v) => updateBrand(i, { always: v })}
                 placeholder="Full name, ticker, other scripts - press Enter after each"
-              />
+              >
+                {sg && <SuggestChips values={sg.always} current={b.always} allLabel="Add all names" onAdd={(v) => updateBrand(i, { always: addValues(b.always, v) })} />}
+              </TagInput>
               <label className="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"
@@ -184,6 +234,12 @@ export function BrandProfileForm({ name, initial, stale, existingNames, onSaved,
                 />
                 Is the short name also an everyday word? (like Safari, VIP, Basil)
               </label>
+              {sw && !w && (
+                <Button variant="ghost" size="xs" aria-label={`Use everyday word ${sw.word}`}
+                  onClick={() => updateBrand(i, { everyday_word: { ...emptyWord(sw.word), exact_case: sw.exact_case, closeness: sw.closeness } })}>
+                  Suggested: treat &quot;{sw.word}&quot; as an everyday word
+                </Button>
+              )}
               {w && (
                 <div className="space-y-4 border-l-2 border-neutral-200 pl-4">
                   <div className="flex flex-wrap items-end gap-6">
@@ -205,13 +261,21 @@ export function BrandProfileForm({ name, initial, stale, existingNames, onSaved,
                     </div>
                   </div>
                   <TagInput id={`b${i}-confirm`} label="Words that confirm it's the brand" ariaLabel={`Brand ${n} confirming words`} values={w.confirm} onChange={(v) => updateWord(i, { confirm: v })} placeholder="e.g. luggage, bag, NSE" hint="Plurals are matched automatically. Brand names and people in this set also count.">
+                    {sw && <SuggestChips values={sw.confirm} current={w.confirm} allLabel="Add all confirming words" onAdd={(v) => updateWord(i, { confirm: addValues(w.confirm, v) })} />}
                     {warningsFor(i, "confirm")}
                   </TagInput>
                   <div className="grid gap-4 md:grid-cols-2">
-                    <TagInput id={`b${i}-after`} label="Not the brand when followed by" ariaLabel={`Brand ${n} not followed by`} values={w.not_followed_by} onChange={(v) => updateWord(i, { not_followed_by: v })} placeholder="e.g. browser, tour" />
-                    <TagInput id={`b${i}-before`} label="Not the brand when preceded by" ariaLabel={`Brand ${n} not preceded by`} values={w.not_preceded_by} onChange={(v) => updateWord(i, { not_preceded_by: v })} placeholder="e.g. Apple, jeep" />
-                    <TagInput id={`b${i}-sentence`} label="Not the brand in the same sentence as" ariaLabel={`Brand ${n} not in the same sentence as`} values={w.not_in_sentence_with} onChange={(v) => updateWord(i, { not_in_sentence_with: v })} placeholder="e.g. Serengeti, Kruger" />
+                    <TagInput id={`b${i}-after`} label="Not the brand when followed by" ariaLabel={`Brand ${n} not followed by`} values={w.not_followed_by} onChange={(v) => updateWord(i, { not_followed_by: v })} placeholder="e.g. browser, tour">
+                      {sw && <SuggestChips values={sw.not_followed_by} current={w.not_followed_by} allLabel="Add all followed-by words" onAdd={(v) => updateWord(i, { not_followed_by: addValues(w.not_followed_by, v) })} />}
+                    </TagInput>
+                    <TagInput id={`b${i}-before`} label="Not the brand when preceded by" ariaLabel={`Brand ${n} not preceded by`} values={w.not_preceded_by} onChange={(v) => updateWord(i, { not_preceded_by: v })} placeholder="e.g. Apple, jeep">
+                      {sw && <SuggestChips values={sw.not_preceded_by} current={w.not_preceded_by} allLabel="Add all preceded-by words" onAdd={(v) => updateWord(i, { not_preceded_by: addValues(w.not_preceded_by, v) })} />}
+                    </TagInput>
+                    <TagInput id={`b${i}-sentence`} label="Not the brand in the same sentence as" ariaLabel={`Brand ${n} not in the same sentence as`} values={w.not_in_sentence_with} onChange={(v) => updateWord(i, { not_in_sentence_with: v })} placeholder="e.g. Serengeti, Kruger">
+                      {sw && <SuggestChips values={sw.not_in_sentence_with} current={w.not_in_sentence_with} allLabel="Add all sentence words" onAdd={(v) => updateWord(i, { not_in_sentence_with: addValues(w.not_in_sentence_with, v) })} />}
+                    </TagInput>
                     <TagInput id={`b${i}-phrases`} label="Exact phrases to ignore" ariaLabel={`Brand ${n} phrases to ignore`} values={w.ignore_phrases} onChange={(v) => updateWord(i, { ignore_phrases: v })} placeholder="e.g. Ritz-Carlton">
+                      {sw && <SuggestChips values={sw.ignore_phrases} current={w.ignore_phrases} allLabel="Add all phrases" onAdd={(v) => updateWord(i, { ignore_phrases: addValues(w.ignore_phrases, v) })} />}
                       {warningsFor(i, "ignore_phrases")}
                     </TagInput>
                   </div>
@@ -246,6 +310,14 @@ export function BrandProfileForm({ name, initial, stale, existingNames, onSaved,
             </label>
             <Button variant="ghost" size="sm" onClick={() => setProfile((p) => ({ ...p, people: p.people.filter((_, j) => j !== i) }))}>Remove</Button>
           </div>
+        ))}
+        {Object.entries(suggestions).map(([k, s]) => (
+          <SuggestChips key={k} note="verify - from AI memory" allLabel="Add all people"
+            values={s.people.map((x) => x.name)} current={profile.people.map((x) => x.name)}
+            onAdd={(names) => setProfile((p) => ({
+              ...p,
+              people: [...p.people, ...s.people.filter((x) => names.includes(x.name))],
+            }))} />
         ))}
         <Button variant="outline" size="sm" onClick={() => setProfile((p) => ({ ...p, people: [...p.people, { name: "", common: false }] }))}>Add person</Button>
       </div>

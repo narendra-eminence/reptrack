@@ -86,3 +86,57 @@ test("the form refuses a raw set's name", async ({ page }) => {
   await page.getByRole("button", { name: "Save set" }).click();
   await expect(page.getByRole("alert").filter({ hasText: "already exists" })).toBeVisible();
 });
+
+test("Suggest offers chips that are only added when clicked", async ({ page }, info) => {
+  await page.route("**/api/health", async (route) => {
+    const res = await route.fetch();
+    await route.fulfill({ response: res, json: { ...(await res.json()), suggest_available: true } });
+  });
+  await page.route("**/api/brand-profiles/suggest", (route) =>
+    route.fulfill({
+      json: {
+        dropped: 0,
+        suggestion: {
+          always: ["Theta Industries"],
+          handles: ["thetabags"],
+          everyday_word: {
+            word: "Theta", exact_case: true, closeness: "close", confirm: ["luggage", "trolley"],
+            not_followed_by: ["function"], not_preceded_by: [], not_in_sentence_with: [], ignore_phrases: [],
+          },
+          people: [{ name: "Ann Example", common: false }],
+          notes: "Collides with the Greek letter.",
+        },
+      },
+    }),
+  );
+  await page.goto("/brands");
+  await page.getByRole("button", { name: "New set", exact: true }).click();
+  await page.getByLabel("Brand 1 name", { exact: true }).fill("Theta");
+  await page.getByLabel("Brand 1 description").fill("Luggage maker");
+  await page.getByRole("button", { name: "Suggest" }).click();
+  await expect(page.getByText("Collides with the Greek letter.")).toBeVisible();
+
+  // Nothing is added until clicked.
+  await expect(page.getByRole("button", { name: "Remove Theta Industries" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Add Theta Industries" }).click();
+  await expect(page.getByRole("button", { name: "Remove Theta Industries" })).toBeVisible();
+
+  // The everyday-word suggestion turns the section on and its chips appear.
+  await page.getByRole("button", { name: "Use everyday word Theta" }).click();
+  await expect(page.getByLabel("Brand 1 everyday word")).toHaveValue("Theta");
+  await page.getByRole("button", { name: "Add all confirming words" }).click();
+  await expect(page.getByRole("button", { name: "Remove trolley" })).toBeVisible();
+
+  await expect(page.getByText("verify - from AI memory")).toBeVisible();
+  await shot(page, "brands-suggest", info);
+  await page.getByRole("button", { name: "Add Ann Example" }).click();
+  await expect(page.getByLabel("Person 1 name")).toHaveValue("Ann Example");
+});
+
+test("Suggest is disabled without an API key", async ({ page }) => {
+  await page.goto("/brands");
+  await page.getByRole("button", { name: "New set", exact: true }).click();
+  await page.getByLabel("Brand 1 name", { exact: true }).fill("Theta");
+  await expect(page.getByRole("button", { name: "Suggest" })).toBeDisabled();
+  await expect(page.getByText("Suggest needs ANTHROPIC_API_KEY")).toBeVisible();
+});
