@@ -12,7 +12,6 @@ export interface Health {
   verifier_config_error: string | null;
   keys: Record<Provider, string | null>;
   chromium: boolean;
-  suggest_available: boolean;
 }
 export interface SearchInput { queries: string; provider: Provider; vertical: Vertical; pages: string; start: string; end: string }
 export interface Plan { queries: string[]; count: number; pages: number; max_calls: number; cached_calls: number }
@@ -46,28 +45,44 @@ export interface BrandRule {
   case_sensitive: boolean;
   context_window: number;
 }
-export interface BrandSet { name: string; rules: BrandRule[]; managed: boolean; stale: boolean }
-export type Closeness = "close" | "nearby" | "paragraph";
-export interface EverydayWord {
-  word: string;
-  exact_case: boolean;
-  closeness: Closeness;
-  confirm: string[];
-  not_followed_by: string[];
-  not_preceded_by: string[];
-  not_in_sentence_with: string[];
-  ignore_phrases: string[];
-}
-export interface ProfileBrand { name: string; always: string[]; handles: string[]; everyday_word: EverydayWord | null }
-export interface Person { name: string; common: boolean }
-export interface BrandProfile { brands: ProfileBrand[]; people: Person[] }
-export interface ProfileWarning { brand: number | null; field: string; message: string }
-export interface Suggestion {
-  always: string[];
+export interface BrandSet { name: string; rules: BrandRule[]; managed: boolean; stale: boolean; profile: BrandProfile | null }
+export interface Exclusions { followed_by: string[]; preceded_by: string[]; nearby: string[]; phrases: string[] }
+export interface Person { name: string; require_brand_nearby: boolean }
+export interface TestSentence { text: string; expect: "match" | "no_match" }
+export interface ProfileBrand {
+  name: string;
+  description: string;
+  aliases: string[];
+  hashtags: string[];
   handles: string[];
-  everyday_word: EverydayWord | null;
+  common_word: boolean;
+  confirming_words: string[];
+  exclusions: Exclusions;
   people: Person[];
-  notes: string;
+  tests: TestSentence[];
+}
+export interface BrandProfile { brands: ProfileBrand[] }
+export interface ProfileWarning { brand: number | null; field: string; message: string }
+export interface TryEntry {
+  brand: string;
+  offset: number;
+  text: string;
+  before: string;
+  after: string;
+  cut_before: boolean;
+  cut_after: boolean;
+  snippet: string;
+  reason?: string;
+}
+export interface TestResult {
+  brand: number;
+  index: number;
+  text: string;
+  expect: TestSentence["expect"];
+  passed: boolean;
+  counted: TryEntry[];
+  not_counted: TryEntry[];
+  elsewhere: TryEntry[];
 }
 export interface VerifyJob {
   id: number;
@@ -118,14 +133,6 @@ export interface RunListItem {
 export interface Page<T> { total: number; offset: number; limit: number; rows: T[] }
 export type SerpRow = Record<string, Cell>;
 export interface VerifyRow { seq: number; status: string | null; is_duplicate: boolean; row: Record<string, Cell> }
-export interface TryResult {
-  hits: { brand: string; offset: number; snippet: string; text: string; before: string; after: string;
-    cut_before: boolean; cut_after: boolean }[];
-  excluded: {
-    brand: string; offset: number; text: string; reason: string; snippet: string; before: string; after: string;
-    cut_before: boolean; cut_after: boolean;
-  }[];
-}
 export type RunEvent =
   | { type: "snapshot"; run: RunDetail }
   | {

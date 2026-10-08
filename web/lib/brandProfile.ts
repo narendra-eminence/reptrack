@@ -1,28 +1,21 @@
-import type { BrandProfile, Closeness, EverydayWord, ProfileBrand } from "./types";
+import type { BrandProfile, Exclusions, ProfileBrand } from "./types";
 
-export const CLOSENESS_LABELS: Record<Closeness, string> = {
-  close: "Close (about 10 words)",
-  nearby: "Nearby (about 15 words)",
-  paragraph: "Same paragraph",
-};
+export const emptyExclusions = (): Exclusions => ({ followed_by: [], preceded_by: [], nearby: [], phrases: [] });
 
-export const WORD_LISTS = ["confirm", "not_followed_by", "not_preceded_by", "not_in_sentence_with", "ignore_phrases"] as const;
-export type WordList = (typeof WORD_LISTS)[number];
-
-export const emptyWord = (word = ""): EverydayWord => ({
-  word,
-  exact_case: true,
-  closeness: "nearby",
-  confirm: [],
-  not_followed_by: [],
-  not_preceded_by: [],
-  not_in_sentence_with: [],
-  ignore_phrases: [],
+export const emptyBrand = (): ProfileBrand => ({
+  name: "",
+  description: "",
+  aliases: [],
+  hashtags: [],
+  handles: [],
+  common_word: false,
+  confirming_words: [],
+  exclusions: emptyExclusions(),
+  people: [],
+  tests: [],
 });
 
-export const emptyBrand = (): ProfileBrand => ({ name: "", always: [], handles: [], everyday_word: null });
-
-export const emptyProfile = (): BrandProfile => ({ brands: [emptyBrand()], people: [] });
+export const emptyProfile = (): BrandProfile => ({ brands: [emptyBrand()] });
 
 export function splitEntries(raw: string): string[] {
   return raw.split(/[\n,]/).map((s) => s.trim()).filter(Boolean);
@@ -48,18 +41,29 @@ export function missingValues(list: string[], values: string[]): string[] {
 
 const trimAll = (xs: string[]) => xs.map((x) => x.trim()).filter(Boolean);
 
+/** Trim, drop blanks, and clear common-word-only lists when the brand is not a common word. */
 export function cleanProfile(p: BrandProfile): BrandProfile {
   return {
     brands: p.brands.map((b) => ({
       name: b.name.trim(),
-      always: trimAll(b.always),
+      description: b.description.trim(),
+      aliases: trimAll(b.aliases),
+      hashtags: trimAll(b.hashtags),
       handles: trimAll(b.handles),
-      everyday_word: b.everyday_word && {
-        ...b.everyday_word,
-        word: b.everyday_word.word.trim(),
-        ...Object.fromEntries(WORD_LISTS.map((k) => [k, trimAll(b.everyday_word![k])])),
-      },
+      common_word: b.common_word,
+      confirming_words: b.common_word ? trimAll(b.confirming_words) : [],
+      exclusions: b.common_word
+        ? {
+            followed_by: trimAll(b.exclusions.followed_by),
+            preceded_by: trimAll(b.exclusions.preceded_by),
+            nearby: trimAll(b.exclusions.nearby),
+            phrases: trimAll(b.exclusions.phrases),
+          }
+        : emptyExclusions(),
+      people: b.people
+        .map((x) => ({ name: x.name.trim(), require_brand_nearby: x.require_brand_nearby }))
+        .filter((x) => x.name),
+      tests: b.tests.map((t) => ({ text: t.text.trim(), expect: t.expect })).filter((t) => t.text),
     })),
-    people: p.people.map((x) => ({ name: x.name.trim(), common: x.common })).filter((x) => x.name),
   };
 }

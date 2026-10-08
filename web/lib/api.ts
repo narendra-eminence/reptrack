@@ -1,6 +1,6 @@
 import type {
-  BrandProfile, BrandRule, BrandSet, Health, Options, Page, Plan, ProfileWarning, RunDetail, RunListItem, SearchInput,
-  SerpRow, Suggestion, TryResult, VerifyRow,
+  BrandProfile, BrandSet, Health, Options, Page, Plan, ProfileWarning, RunDetail, RunListItem, SearchInput,
+  SerpRow, TestResult, VerifyRow,
 } from "./types";
 
 const DOWN = "Backend not reachable. Start it with `make dev` in the repscore-pipeline folder.";
@@ -62,27 +62,16 @@ export const api = {
   verifyRows: (id: string, vj: number, p: { offset: number; limit: number; status?: string; hide_duplicates?: boolean; q?: string }) =>
     request<Page<VerifyRow>>(`/api/runs/${id}/verify/${vj}/results${qs(p)}`),
   brands: () => request<{ sets: BrandSet[] }>("/api/brands"),
-  saveBrand: (name: string, rules: BrandRule[], create = false) =>
-    request<{ name: string; backup: string }>(`/api/brands/${encodeURIComponent(name)}`, {
-      method: "PUT",
-      body: JSON.stringify({ rules, create }),
-    }),
   deleteBrand: (name: string) =>
     request<{ deleted: string; backup: string }>(`/api/brands/${encodeURIComponent(name)}`, { method: "DELETE" }),
-  testBrand: (body: { text: string; rules?: BrandRule[]; set?: string }) => post<TryResult>("/api/brands/test", body),
   brandProfile: (name: string) => request<{ profile: BrandProfile }>(`/api/brand-profiles/${encodeURIComponent(name)}`),
   saveBrandProfile: (name: string, profile: BrandProfile, create = false) =>
-    request<{ name: string; backup: string; warnings: ProfileWarning[] }>(`/api/brand-profiles/${encodeURIComponent(name)}`, {
-      method: "PUT",
-      body: JSON.stringify({ profile, create }),
-    }),
-  previewBrandProfile: (profile: BrandProfile) =>
-    post<{ rules: BrandRule[]; warnings: ProfileWarning[] }>("/api/brand-profiles/preview", { profile }),
-  testBrandProfile: (profile: BrandProfile, text: string) => post<TryResult>("/api/brand-profiles/test", { profile, text }),
-  suggestBrandProfile: (brandName: string, description: string) =>
-    post<{ suggestion: Suggestion; dropped: number }>("/api/brand-profiles/suggest", { brand_name: brandName, description }),
-  detachBrandProfile: (name: string) =>
-    request<{ name: string; backup: string }>(`/api/brand-profiles/${encodeURIComponent(name)}/profile`, { method: "DELETE" }),
+    request<{ name: string; backup: string; warnings: ProfileWarning[]; tests: TestResult[] }>(
+      `/api/brand-profiles/${encodeURIComponent(name)}`,
+      { method: "PUT", body: JSON.stringify({ profile, create }) },
+    ),
+  checkBrandProfile: (profile: BrandProfile) =>
+    post<{ warnings: ProfileWarning[]; tests: TestResult[] }>("/api/brand-profiles/check", { profile }),
 };
 
 export function errorMessage(e: unknown): string {
