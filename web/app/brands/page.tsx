@@ -1,4 +1,4 @@
-import { BrandEditor } from "@/components/BrandEditor";
+import { BrandWorkspace } from "@/components/BrandWorkspace";
 
 export default function BrandsPage() {
   return (
@@ -9,7 +9,7 @@ export default function BrandsPage() {
           Stored in url-verification&apos;s config.yaml, shared with the verify_urls.py command line. Each save keeps a backup.
         </p>
       </div>
-      <BrandEditor />
+      <BrandWorkspace />
     </div>
   );
 }

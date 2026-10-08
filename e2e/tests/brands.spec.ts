@@ -5,7 +5,7 @@ test("create, try, validate, save and delete a brand set", async ({ page }, info
   const name = `acme-${info.project.name}`;
   await page.goto("/brands");
   await expect(page.getByRole("heading", { name: "Brand sets", level: 1 })).toBeVisible();
-  await page.getByRole("button", { name: "New set" }).click();
+  await page.getByRole("button", { name: "New raw set" }).click();
   await page.getByLabel("Set name").fill(name);
   await page.getByLabel("Rule 1 name").fill("Acme");
   await page.getByLabel("Rule 1 pattern").fill("Acme");
@@ -28,6 +28,7 @@ test("create, try, validate, save and delete a brand set", async ({ page }, info
   await page.getByLabel("Rule 1 pattern").fill("Acme");
   await page.getByRole("button", { name: "Save set" }).click();
   await expect(page.getByRole("status")).toContainText("Saved");
+  await expect(page.getByRole("button", { name, exact: true })).not.toContainText("Form");
   await shot(page, "brands", info);
 
   await page.reload();
