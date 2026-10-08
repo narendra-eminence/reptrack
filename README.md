@@ -13,9 +13,6 @@ DataForSEO, verify every result URL against a chosen brand set, download the ver
 Override the locations with `COMPANY_MONITOR_DIR`, `URL_VERIFICATION_DIR`, `URL_VERIFICATION_CONFIG`,
 `URL_VERIFICATION_CACHE`, `PIPELINE_DATA_DIR`.
 
-Suggest on the brand form needs `ANTHROPIC_API_KEY` in `repscore-pipeline/.env` (git-ignored). Optional:
-`PIPELINE_SUGGEST_MODEL` (default `claude-opus-5-5`). Without a key the button is disabled; everything else works.
-
 The backend (`api/`) is FastAPI on Python 3.12 (pinned in `api/.python-version`, managed with `uv`). The
 frontend (`web/`) is Next.js 16 with shadcn's `base-nova` style, built on Base UI (not Radix).
 
@@ -51,8 +48,7 @@ The Brands page edits `config.yaml` in url-verification and writes `config.yaml.
 A verification copies the chosen set's rules when it starts and uses only that copy, so editing a set never changes
 a running or finished verification.
 
-"New set" opens the simple form: plain words for the brand, its people, and an optional Suggest button (needs
-`ANTHROPIC_API_KEY`) that proposes chips to accept. No regex is involved. Sets made with the form show a "Form"
+"New set" opens the simple form: plain words for the brand and its people. No regex is involved. Sets made with the form show a "Form"
 badge and reopen in the form. "New raw set" and existing hand-written sets use the regex editor. "Switch to
 advanced editing" turns a form set into raw rules. The form answers live under `profiles:` in url-verification's
 `config.yaml`.

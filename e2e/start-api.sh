@@ -12,6 +12,5 @@ export URL_VERIFICATION_CACHE="$tmp/cache"
 export PIPELINE_SEARCH_BACKEND=fixture
 export PIPELINE_SEARCH_FIXTURE="$here/fixtures/search.json"
 export SERPAPI_KEY=e2e-dummy DATAFORSEO_LOGIN=e2e DATAFORSEO_PASSWORD=e2e
-export ANTHROPIC_API_KEY=""  # empty, so e2e never picks up a real key from .env
 cd "$here/../api"
 exec uv run uvicorn pipeline_api.main:create_app --factory --host 127.0.0.1 --port 8100 --timeout-graceful-shutdown 3

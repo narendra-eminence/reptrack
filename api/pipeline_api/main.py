@@ -25,7 +25,6 @@ from .routes import runs as runs_routes
 from .routes import verify as verify_routes
 from .scrape import scrape_kind
 from .settings import Settings, load_settings
-from .suggest import AnthropicSuggester, Suggester
 from .verify import verify_kind
 
 
@@ -41,7 +40,6 @@ def create_app(
     *,
     search_one: SearchFn | None = None,
     pipeline_run: PipelineRunFn | None = None,
-    suggester: Suggester | None = None,
 ) -> FastAPI:
     settings = settings or load_settings()
     settings.check()
@@ -52,14 +50,11 @@ def create_app(
     bs = load_bulk_search(settings.company_monitor_dir)
     if pipeline_run is None:
         from urlverify.pipeline import run as pipeline_run
-    if suggester is None and settings.anthropic_api_key:
-        suggester = AnthropicSuggester(settings.anthropic_api_key, settings.suggest_model)
     deps = Deps(
         settings=settings,
         bs=bs,
         search_one=search_one or _default_search(settings, bs),
         pipeline_run=pipeline_run,
-        suggester=suggester,
     )
 
     bus = EventBus()

@@ -40,18 +40,3 @@ def test_fixture_backend_requires_fixture(settings: Settings):
     broken = Settings(**{**settings.__dict__, "search_backend": "fixture"})
     with pytest.raises(RuntimeError, match="PIPELINE_SEARCH_FIXTURE"):
         broken.check()
-
-
-def test_default_env_reads_dotenv_without_touching_os_environ(tmp_path, monkeypatch):
-    import os
-
-    from pipeline_api import settings as settings_module
-
-    (tmp_path / ".env").write_text("ANTHROPIC_API_KEY=from-dotenv\nPIPELINE_SEARCH_BACKEND=fixture\n")
-    monkeypatch.setattr(settings_module, "REPO_ROOT", tmp_path)
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.setenv("PIPELINE_SEARCH_BACKEND", "live")  # the real environment wins over .env
-    s = load_settings()
-    assert s.anthropic_api_key == "from-dotenv"
-    assert s.search_backend == "live"
-    assert "ANTHROPIC_API_KEY" not in os.environ

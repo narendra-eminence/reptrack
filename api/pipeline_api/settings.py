@@ -7,8 +7,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-from dotenv import dotenv_values
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -21,8 +19,6 @@ class Settings:
     data_dir: Path
     search_backend: str = "live"  # "live" | "fixture"
     search_fixture: Path | None = None
-    anthropic_api_key: str | None = None  # Suggest on the brand form is off without it
-    suggest_model: str = "claude-opus-5-5"
 
     @property
     def db_path(self) -> Path:
@@ -55,10 +51,7 @@ class Settings:
 
 
 def load_settings(env: Mapping[str, str] | None = None) -> Settings:
-    if env is None:
-        # .env supplies ANTHROPIC_API_KEY for Suggest; the real environment wins. os.environ is left untouched.
-        merged = {**dotenv_values(REPO_ROOT / ".env"), **os.environ}
-        env = {k: v for k, v in merged.items() if v is not None}
+    env = os.environ if env is None else env
     home = Path.home()
     uv_dir = Path(env.get("URL_VERIFICATION_DIR", str(home / "Desktop/niks/url-verification"))).expanduser()
     fixture = env.get("PIPELINE_SEARCH_FIXTURE")
@@ -72,6 +65,4 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         data_dir=Path(env.get("PIPELINE_DATA_DIR", str(REPO_ROOT / "data"))).expanduser(),
         search_backend=env.get("PIPELINE_SEARCH_BACKEND", "live"),
         search_fixture=Path(fixture).expanduser() if fixture else None,
-        anthropic_api_key=env.get("ANTHROPIC_API_KEY") or None,
-        suggest_model=env.get("PIPELINE_SUGGEST_MODEL") or "claude-opus-5-5",
     )

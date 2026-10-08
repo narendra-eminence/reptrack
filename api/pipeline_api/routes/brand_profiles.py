@@ -6,13 +6,12 @@ from dataclasses import asdict
 from typing import Any, Literal
 
 from fastapi import APIRouter, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 from urlverify import brands
 from urlverify.profile import BrandProfile, ProfileError, build_rules, profile_from_dict, profile_to_dict
 
 from ..config_errors import CONFIG_LOAD_ERRORS, CONFIG_WRITE_ERRORS
 from ..errors import ApiError
-from ..suggest import SuggestError, sanitize_suggestion
 
 router = APIRouter()
 
@@ -140,24 +139,3 @@ def detach(request: Request, name: str) -> dict:
     except CONFIG_WRITE_ERRORS as e:
         raise ApiError(422, str(e)) from None
     return {"name": name, "backup": str(backup)}
-
-
-class SuggestBody(_Strict):
-    brand_name: str = Field(max_length=200)
-    description: str = Field(default="", max_length=500)
-
-
-@router.post("/api/brand-profiles/suggest")
-def suggest(request: Request, body: SuggestBody) -> dict:
-    suggester = request.app.state.deps.suggester
-    if suggester is None:
-        raise ApiError(503, "Suggest is off: set ANTHROPIC_API_KEY in repscore-pipeline/.env and restart the app.")
-    name = body.brand_name.strip()
-    if not name:
-        raise ApiError(422, "Type the brand name first.")
-    try:
-        raw = suggester(name, body.description.strip())
-    except SuggestError as e:
-        raise ApiError(502, str(e)) from None
-    clean, dropped = sanitize_suggestion(raw)
-    return {"suggestion": clean, "dropped": dropped}

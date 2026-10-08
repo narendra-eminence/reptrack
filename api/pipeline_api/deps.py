@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from typing import Any
 
 from .settings import Settings
-from .suggest import Suggester
 
 # (query, start, end, pages, vertical, provider, stop) -> (rows, error, attempts); same as bulk_search.search_one
 SearchFn = Callable[[str, str, str, int, str, str, threading.Event | None], tuple[list[dict[str, Any]], str, int]]
@@ -22,4 +21,3 @@ class Deps:
     bs: Any  # the bulk_search module
     search_one: SearchFn
     pipeline_run: PipelineRunFn
-    suggester: Suggester | None = None
