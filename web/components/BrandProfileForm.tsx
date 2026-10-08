@@ -9,7 +9,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { api, errorMessage } from "@/lib/api";
-import { type CheckResult, cleanProfile, emptyBrand, emptyExclusions, namedBrands, remapCheck } from "@/lib/brandProfile";
+import {
+  type CheckResult, cleanProfile, emptyBrand, emptyExclusions, namedBrands, normaliseTag, remapCheck,
+} from "@/lib/brandProfile";
 import type { BrandProfile, Exclusions, Person, ProfileBrand, TestResult, TestSentence } from "@/lib/types";
 
 let idCounter = 0;
@@ -22,7 +24,7 @@ type Props = {
   initial: BrandProfile;
   stale: boolean;
   existingNames: string[];
-  onSaved: (name: string, profile: BrandProfile) => void;
+  onSaved: (name: string) => void;
   onDeleted: () => void;
   onDirtyChange: (dirty: boolean) => void;
 };
@@ -109,7 +111,7 @@ export function BrandProfileForm({ name, initial, stale, existingNames, onSaved,
       <p key={w.message} className="text-xs text-amber-800">{w.message}</p>
     ));
   const otherWarnings = (i: number) =>
-    shownWarnings.filter((w) => (w.brand === i && !FIELDS_WITH_WARNINGS.has(w.field)) || (i === 0 && w.brand === null)).map((w) => (
+    shownWarnings.filter((w) => w.brand === i && !FIELDS_WITH_WARNINGS.has(w.field)).map((w) => (
       <p key={w.message} className="text-xs text-amber-800">{w.message}</p>
     ));
 
@@ -147,7 +149,7 @@ export function BrandProfileForm({ name, initial, stale, existingNames, onSaved,
       setSavedSnapshot(sentSnapshot);
       setSaved(`Saved. The previous config.yaml was backed up to ${res.backup.split("/").pop()}.${failingNote(res.tests)}`);
       setSavedName(res.name);
-      onSaved(res.name, clean);
+      onSaved(res.name);
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -191,20 +193,20 @@ export function BrandProfileForm({ name, initial, stale, existingNames, onSaved,
               <div className="flex min-h-7 items-center justify-between gap-3">
                 <h3 className="text-base">Brand {n}</h3>
                 {profile.brands.length > 1 && (
-                  <Button variant="ghost" size="sm" onClick={() => removeBrand(i)}>Remove brand</Button>
+                  <Button variant="ghost" size="sm" aria-label={`Brand ${n}: Remove brand`} onClick={() => removeBrand(i)}>Remove brand</Button>
                 )}
               </div>
 
               <div className="space-y-4">
                 <div className="space-y-1.5 md:max-w-sm">
                   <Label htmlFor={`b${i}-name`}>Brand name</Label>
-                  <Input className="h-9" id={`b${i}-name`} aria-label={`Brand ${n} name`} value={b.name} onChange={(e) => updateBrand(i, { name: e.target.value })} placeholder="e.g. Safari" />
+                  <Input className="h-9" id={`b${i}-name`} aria-label={`Brand ${n}: Brand name`} value={b.name} onChange={(e) => updateBrand(i, { name: e.target.value })} placeholder="e.g. Safari" />
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor={`b${i}-desc`}>Description</Label>
                   <Textarea
                     id={`b${i}-desc`}
-                    aria-label={`Brand ${n} description`}
+                    aria-label={`Brand ${n}: Description`}
                     rows={3}
                     maxLength={500}
                     value={b.description}
@@ -216,7 +218,7 @@ export function BrandProfileForm({ name, initial, stale, existingNames, onSaved,
                 <TagInput
                   id={`b${i}-aliases`}
                   label="Other brand names / aliases"
-                  ariaLabel={`Brand ${n} aliases`}
+                  ariaLabel={`Brand ${n}: Other brand names / aliases`}
                   values={b.aliases}
                   onChange={(v) => updateBrand(i, { aliases: v })}
                   placeholder="Full name, ticker, other scripts - press Enter after each"
@@ -226,18 +228,20 @@ export function BrandProfileForm({ name, initial, stale, existingNames, onSaved,
                   <TagInput
                     id={`b${i}-hashtags`}
                     label="Hashtags"
-                    ariaLabel={`Brand ${n} hashtags`}
+                    ariaLabel={`Brand ${n}: Hashtags`}
                     values={b.hashtags}
                     onChange={(v) => updateBrand(i, { hashtags: v })}
+                    normalise={normaliseTag}
                     placeholder="e.g. safaribags"
                     hint="Without #"
                   />
                   <TagInput
                     id={`b${i}-handles`}
                     label="Social handles"
-                    ariaLabel={`Brand ${n} handles`}
+                    ariaLabel={`Brand ${n}: Social handles`}
                     values={b.handles}
                     onChange={(v) => updateBrand(i, { handles: v })}
+                    normalise={normaliseTag}
                     placeholder="e.g. safari_india"
                     hint="Without @"
                   />
@@ -251,7 +255,7 @@ export function BrandProfileForm({ name, initial, stale, existingNames, onSaved,
                         <input
                           type="radio"
                           name={`b${i}-common`}
-                          aria-label={`Brand ${n} common word ${label.toLowerCase()}`}
+                          aria-label={`Brand ${n}: Is the brand name a common word? ${label}`}
                           className="size-4 accent-[#000c66]"
                           checked={b.common_word === value}
                           onChange={() => setCommonWord(i, value)}
@@ -270,7 +274,7 @@ export function BrandProfileForm({ name, initial, stale, existingNames, onSaved,
                     <TagInput
                       id={`b${i}-confirm`}
                       label="Words that confirm this is the brand"
-                      ariaLabel={`Brand ${n} confirming words`}
+                      ariaLabel={`Brand ${n}: Words that confirm this is the brand`}
                       values={b.confirming_words}
                       onChange={(v) => updateBrand(i, { confirming_words: v })}
                       placeholder="e.g. luggage, bag, NSE"
@@ -281,15 +285,15 @@ export function BrandProfileForm({ name, initial, stale, existingNames, onSaved,
                     <div className="space-y-3">
                       <h5 className="text-sm font-semibold">Words that mean it is NOT the brand</h5>
                       <div className="grid gap-4 md:grid-cols-3">
-                        <TagInput id={`b${i}-after`} label="After the brand name" ariaLabel={`Brand ${n} not after`} values={b.exclusions.followed_by} onChange={(v) => updateExclusions(i, { followed_by: v })} placeholder="e.g. browser, tour" />
-                        <TagInput id={`b${i}-before`} label="Before the brand name" ariaLabel={`Brand ${n} not before`} values={b.exclusions.preceded_by} onChange={(v) => updateExclusions(i, { preceded_by: v })} placeholder="e.g. Apple, jeep" />
-                        <TagInput id={`b${i}-nearby`} label="Nearby / same sentence" ariaLabel={`Brand ${n} not nearby`} values={b.exclusions.nearby} onChange={(v) => updateExclusions(i, { nearby: v })} placeholder="e.g. Serengeti, Kruger" />
+                        <TagInput id={`b${i}-after`} label="After the brand name" ariaLabel={`Brand ${n}: Not the brand: After the brand name`} values={b.exclusions.followed_by} onChange={(v) => updateExclusions(i, { followed_by: v })} placeholder="e.g. browser, tour" />
+                        <TagInput id={`b${i}-before`} label="Before the brand name" ariaLabel={`Brand ${n}: Not the brand: Before the brand name`} values={b.exclusions.preceded_by} onChange={(v) => updateExclusions(i, { preceded_by: v })} placeholder="e.g. Apple, jeep" />
+                        <TagInput id={`b${i}-nearby`} label="Nearby / same sentence" ariaLabel={`Brand ${n}: Not the brand: Nearby / same sentence`} values={b.exclusions.nearby} onChange={(v) => updateExclusions(i, { nearby: v })} placeholder="e.g. Serengeti, Kruger" />
                       </div>
                     </div>
                     <TagInput
                       id={`b${i}-phrases`}
                       label="Exact phrases to ignore"
-                      ariaLabel={`Brand ${n} phrases to ignore`}
+                      ariaLabel={`Brand ${n}: Exact phrases to ignore`}
                       values={b.exclusions.phrases}
                       onChange={(v) => updateExclusions(i, { phrases: v })}
                       placeholder="e.g. Safari browser extension"
@@ -318,7 +322,7 @@ export function BrandProfileForm({ name, initial, stale, existingNames, onSaved,
                           <td className="py-1 pr-2">
                             <Input
                               className="h-8"
-                              aria-label={`Brand ${n} person ${m + 1} name`}
+                              aria-label={`Brand ${n}, person ${m + 1}: Person`}
                               value={x.name}
                               onChange={(e) => updatePerson(i, m, { name: e.target.value })}
                               placeholder="e.g. Sudhir Jatia"
@@ -327,7 +331,7 @@ export function BrandProfileForm({ name, initial, stale, existingNames, onSaved,
                           <td className="py-1 text-center">
                             <input
                               type="checkbox"
-                              aria-label={`Brand ${n} person ${m + 1} only when brand nearby`}
+                              aria-label={`Brand ${n}, person ${m + 1}: Only count when brand is nearby`}
                               className="size-4 align-middle accent-[#000c66]"
                               checked={x.require_brand_nearby}
                               onChange={(e) => updatePerson(i, m, { require_brand_nearby: e.target.checked })}
@@ -337,7 +341,7 @@ export function BrandProfileForm({ name, initial, stale, existingNames, onSaved,
                             <Button
                               variant="ghost"
                               size="sm"
-                              aria-label={`Brand ${n} remove person ${m + 1}`}
+                              aria-label={`Brand ${n}, person ${m + 1}: Remove`}
                               onClick={() => updateBrand(i, { people: b.people.filter((_, k) => k !== m) })}
                             >
                               Remove
@@ -348,14 +352,19 @@ export function BrandProfileForm({ name, initial, stale, existingNames, onSaved,
                     </tbody>
                   </table>
                 )}
-                <Button variant="outline" size="sm" onClick={() => updateBrand(i, { people: [...b.people, { name: "", require_brand_nearby: false }] })}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  aria-label={`Brand ${n}: Add person`}
+                  onClick={() => updateBrand(i, { people: [...b.people, { name: "", require_brand_nearby: false }] })}
+                >
                   Add person
                 </Button>
               </Section>
 
               <div className="border-t pt-4">
                 <TestSentences
-                  brand={n}
+                  brand={i}
                   tests={b.tests}
                   onChange={(tests) => updateBrand(i, { tests })}
                   brandNames={clean.brands.map((x) => x.name)}
@@ -370,7 +379,7 @@ export function BrandProfileForm({ name, initial, stale, existingNames, onSaved,
       </ol>
       <Button variant="outline" onClick={addBrand}>Add another brand</Button>
 
-      {hasBrandName && checkError && <p className="text-sm text-neutral-600">{checkError}</p>}
+      {hasBrandName && checkError && <p role="status" className="text-sm text-neutral-600">{checkError}</p>}
       <div className="flex flex-wrap items-center gap-3">
         <Button onClick={save} disabled={!setName.trim() || saving}>{saving ? "Saving..." : "Save set"}</Button>
         {savedName && <Button variant="outline" onClick={() => setDeleteOpen(true)}>Delete set</Button>}

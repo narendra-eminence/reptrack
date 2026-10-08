@@ -33,7 +33,6 @@ def test_health_and_options(settings, monkeypatch):
         assert health["keys"]["serpapi"] is None
         assert "SECRET" not in str(health)  # key values never leave the server
         assert "suggest_available" not in health
-        assert client.post("/api/brand-profiles/suggest", json={"brand_name": "Safari"}).status_code in (404, 405)
         options = client.get("/api/options").json()
         assert options["verticals"] == ["web", "news", "news_tab"]
         assert options["max_pages"] == {"serpapi": 50, "dataforseo": 20}

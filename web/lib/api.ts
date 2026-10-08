@@ -64,7 +64,6 @@ export const api = {
   brands: () => request<{ sets: BrandSet[] }>("/api/brands"),
   deleteBrand: (name: string) =>
     request<{ deleted: string; backup: string }>(`/api/brands/${encodeURIComponent(name)}`, { method: "DELETE" }),
-  brandProfile: (name: string) => request<{ profile: BrandProfile }>(`/api/brand-profiles/${encodeURIComponent(name)}`),
   saveBrandProfile: (name: string, profile: BrandProfile, create = false) =>
     request<{ name: string; backup: string; warnings: ProfileWarning[]; tests: TestResult[] }>(
       `/api/brand-profiles/${encodeURIComponent(name)}`,

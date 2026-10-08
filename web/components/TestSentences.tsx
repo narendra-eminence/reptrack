@@ -48,7 +48,7 @@ function ExpectSelect(props: { value: Expect; onChange: (v: Expect) => void; "ar
 export function TestSentences({
   brand, tests, onChange, brandNames, resultFor, unnamed, unchecked,
 }: {
-  brand: number; // 1-based, for labels
+  brand: number; // 0-based index in the form, like the form's own ids
   tests: TestSentence[];
   onChange: (tests: TestSentence[]) => void;
   brandNames: string[];
@@ -59,6 +59,7 @@ export function TestSentences({
   const [text, setText] = useState("");
   const [expect, setExpect] = useState<Expect>("match");
   const full = tests.length >= MAX_TESTS;
+  const n = brand + 1; // for labels
 
   function add() {
     const t = text.trim();
@@ -68,7 +69,7 @@ export function TestSentences({
   }
 
   return (
-    <section aria-label={`Brand ${brand} test configuration`} className="space-y-3">
+    <section aria-label={`Brand ${n}: Test configuration`} className="space-y-3">
       <div>
         <h4 className="text-sm font-semibold">Test configuration</h4>
         <p className="text-xs text-neutral-500">
@@ -76,7 +77,7 @@ export function TestSentences({
         </p>
         {unnamed && tests.length > 0 && <p className="mt-1 text-xs text-amber-800">Name this brand to check its sentences.</p>}
       </div>
-      <ul data-testid={`tests-brand-${brand}`} className={cn("space-y-2", !tests.length && "hidden")}>
+      <ul data-testid={`tests-brand-${n}`} className={cn("space-y-2", !tests.length && "hidden")}>
         {tests.map((t, i) => {
           const result = unnamed ? null : resultFor(i);
           return (
@@ -85,7 +86,7 @@ export function TestSentences({
                 <p className="min-w-48 flex-1 pt-1 text-sm break-words">{t.text}</p>
                 <div className="flex items-center gap-2">
                   <ExpectSelect
-                    aria-label={`Brand ${brand} test ${i + 1} expectation`}
+                    aria-label={`Brand ${n}, test ${i + 1}: Expected result`}
                     value={t.expect}
                     onChange={(v) => onChange(tests.map((x, j) => (j === i ? { ...x, expect: v } : x)))}
                   />
@@ -93,7 +94,7 @@ export function TestSentences({
                   <Button
                     variant="ghost"
                     size="sm"
-                    aria-label={`Brand ${brand} remove test ${i + 1}`}
+                    aria-label={`Brand ${n}, test ${i + 1}: Remove`}
                     onClick={() => onChange(tests.filter((_, j) => j !== i))}
                   >
                     Remove
@@ -109,7 +110,7 @@ export function TestSentences({
         <Label htmlFor={`b${brand}-new-test`}>Add test sentence</Label>
         <Textarea
           id={`b${brand}-new-test`}
-          aria-label={`Brand ${brand} new test sentence`}
+          aria-label={`Brand ${n}: Add test sentence`}
           rows={2}
           maxLength={MAX_TEST_CHARS}
           value={text}
@@ -118,8 +119,8 @@ export function TestSentences({
           className="field-sizing-fixed resize-y"
         />
         <div className="flex flex-wrap items-center gap-2">
-          <ExpectSelect aria-label={`Brand ${brand} new test expectation`} value={expect} onChange={setExpect} />
-          <Button variant="outline" disabled={!text.trim() || full} onClick={add}>Add</Button>
+          <ExpectSelect aria-label={`Brand ${n}: New test sentence expected result`} value={expect} onChange={setExpect} />
+          <Button variant="outline" aria-label={`Brand ${n}: Add`} disabled={!text.trim() || full} onClick={add}>Add</Button>
           {full && <span className="text-xs text-neutral-500">At most {MAX_TESTS} test sentences per brand.</span>}
         </div>
       </div>

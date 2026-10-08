@@ -258,9 +258,9 @@ def test_restart_mid_verify_uses_the_stored_snapshot(settings, keys):
         c.post(f"/api/runs/{run_id}/verify", json={"brand_set": "acme"})
         wait_until(lambda: record)
     from urlverify import brands
-    from urlverify.models import BrandRule
+    from urlverify.profile import BrandProfile, ProfileBrand
 
-    brands.save_set(settings.verifier_config, "acme", [BrandRule(name="Changed", pattern="Changed")])
+    brands.save_profile(settings.verifier_config, "acme", BrandProfile([ProfileBrand("Changed")]))
     gate.set()
     with make_client(settings, search_one=FakeSearch(), pipeline_run=fake_pipeline("ok", record)) as c:
         detail = wait_until(lambda: (d := c.get(f"/api/runs/{run_id}").json())["status"] == "verified" and d)

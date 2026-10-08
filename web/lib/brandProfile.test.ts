@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  addValues, cleanProfile, emptyBrand, emptyExclusions, emptyProfile, missingValues, namedBrands, remapCheck, splitEntries,
+  addValues, cleanProfile, emptyBrand, emptyExclusions, emptyProfile, missingValues, namedBrands, normaliseTag, remapCheck,
+  splitEntries,
 } from "./brandProfile";
 import type { BrandProfile } from "./types";
 
@@ -29,7 +30,7 @@ describe("brandProfile helpers", () => {
 
   const messy = (): BrandProfile => ({
     brands: [{
-      name: " Safari ", description: " bags ", aliases: [" Safari Industries ", "  "], hashtags: [" #safari "], handles: ["", "@safari"],
+      name: " Safari ", description: " bags ", aliases: [" Safari Industries ", "  "], hashtags: [" #safari ", "#"], handles: ["", "@safari", " @x "],
       common_word: true, confirming_words: [" bag ", ""],
       exclusions: { followed_by: [" park "], preceded_by: ["", "on"], nearby: [" zoo "], phrases: [" Safari browser ", " "] },
       people: [{ name: " Jo ", require_brand_nearby: true }, { name: "   ", require_brand_nearby: false }],
@@ -42,8 +43,8 @@ describe("brandProfile helpers", () => {
     expect(b.name).toBe("Safari");
     expect(b.description).toBe("bags");
     expect(b.aliases).toEqual(["Safari Industries"]);
-    expect(b.hashtags).toEqual(["#safari"]);
-    expect(b.handles).toEqual(["@safari"]);
+    expect(b.hashtags).toEqual(["safari"]);
+    expect(b.handles).toEqual(["safari", "x"]);
     expect(b.confirming_words).toEqual(["bag"]);
     expect(b.exclusions).toEqual({ followed_by: ["park"], preceded_by: ["on"], nearby: ["zoo"], phrases: ["Safari browser"] });
     expect(b.people).toEqual([{ name: "Jo", require_brand_nearby: true }]);
@@ -61,11 +62,24 @@ describe("brandProfile helpers", () => {
 
   it("does not mutate its input", () => {
     const p = messy();
-    const before = JSON.stringify(p);
+    const before = structuredClone(p);
     cleanProfile(p);
-    p.brands[0].common_word = false;
-    cleanProfile(p);
-    expect(JSON.stringify({ brands: [{ ...p.brands[0], common_word: true }] })).toBe(before);
+    const notCommon = { brands: [{ ...p.brands[0], common_word: false }] };
+    const notCommonBefore = structuredClone(notCommon);
+    cleanProfile(notCommon);
+    expect(p).toEqual(before);
+    expect(notCommon).toEqual(notCommonBefore);
+  });
+
+  it("normalises a hashtag or handle: trimmed, one leading # or @ removed", () => {
+    expect(normaliseTag(" #safari ")).toBe("safari");
+    expect(normaliseTag("@safari_india")).toBe("safari_india");
+    expect(normaliseTag("##x")).toBe("#x");
+    expect(normaliseTag("safari")).toBe("safari");
+  });
+
+  it("treats #Safari and safari as the same hashtag once normalised", () => {
+    expect(addValues(["safari"], ["#Safari"].map(normaliseTag))).toEqual(["safari"]);
   });
 });
 

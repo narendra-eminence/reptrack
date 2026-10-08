@@ -18,7 +18,7 @@ test("verifies results with a chosen brand set and exports", async ({ page }, in
   const progress = page.getByTestId("verify-progress");
   await expect(progress).toContainText("Verification finished", { timeout: 60_000 });
   await expect(progress).toContainText("5 of 5 URLs");
-  await expect(page.getByTestId("snapshot-note")).toContainText('Brand set "mokobara"');
+  await expect(page.getByTestId("snapshot-note")).toContainText('Brand set "mokobara", rules copied when this verification started.');
   await expect(page.getByTestId("chip-Verified")).toContainText("1");
   // /gone (404, brand in snippet) and the Reddit thread (never fetched, brand in snippet) both fall back to a
   // SERP-only match instead of staying Unsupported/Unreachable.

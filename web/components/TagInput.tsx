@@ -5,11 +5,13 @@ import { Label } from "@/components/ui/label";
 import { addValues, splitEntries } from "@/lib/brandProfile";
 
 export function TagInput({
-  id, label, ariaLabel, values, onChange, placeholder, hint, children,
+  id, label, ariaLabel, values, onChange, normalise, placeholder, hint, children,
 }: {
   id: string;
   label: string;
-  ariaLabel?: string;
+  ariaLabel?: string; // must contain the visible label
+  /** Applied to each entry before de-duplication, e.g. to drop a leading # so "#Safari" and "safari" are one value. */
+  normalise?: (value: string) => string;
   values: string[];
   onChange: (values: string[]) => void;
   placeholder?: string;
@@ -19,7 +21,7 @@ export function TagInput({
   const [text, setText] = useState("");
 
   function commit(raw: string) {
-    const entries = splitEntries(raw);
+    const entries = splitEntries(raw).map((v) => (normalise ? normalise(v) : v)).filter(Boolean);
     if (entries.length) onChange(addValues(values, entries));
     setText("");
   }

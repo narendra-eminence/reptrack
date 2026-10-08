@@ -41,15 +41,24 @@ export function missingValues(list: string[], values: string[]): string[] {
 
 const trimAll = (xs: string[]) => xs.map((x) => x.trim()).filter(Boolean);
 
-/** Trim, drop blanks, and clear common-word-only lists when the brand is not a common word. */
+/** A hashtag or handle as stored: trimmed, without one leading # or @ (the same rule as url-verification). */
+export function normaliseTag(value: string): string {
+  const v = value.trim();
+  return /^[#@]/.test(v) ? v.slice(1) : v;
+}
+
+const tagsAll = (xs: string[]) => xs.map(normaliseTag).filter(Boolean);
+
+/** Trim, drop blanks, strip the leading # or @ from hashtags and handles, and clear common-word-only lists when
+ * the brand is not a common word. */
 export function cleanProfile(p: BrandProfile): BrandProfile {
   return {
     brands: p.brands.map((b) => ({
       name: b.name.trim(),
       description: b.description.trim(),
       aliases: trimAll(b.aliases),
-      hashtags: trimAll(b.hashtags),
-      handles: trimAll(b.handles),
+      hashtags: tagsAll(b.hashtags),
+      handles: tagsAll(b.handles),
       common_word: b.common_word,
       confirming_words: b.common_word ? trimAll(b.confirming_words) : [],
       exclusions: b.common_word

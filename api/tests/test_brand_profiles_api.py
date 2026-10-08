@@ -98,6 +98,7 @@ def test_check_validation_error_is_422(settings):
         ("post", "/api/brand-profiles/preview"),
         ("post", "/api/brand-profiles/test"),
         ("delete", "/api/brand-profiles/zeta/profile"),
+        ("post", "/api/brand-profiles/suggest"),
     ],
 )
 def test_removed_endpoints(settings, method, path):

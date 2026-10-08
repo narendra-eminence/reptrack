@@ -7,7 +7,7 @@ import { DeleteSetDialog } from "@/components/DeleteSetDialog";
 import { Button } from "@/components/ui/button";
 import { api, errorMessage } from "@/lib/api";
 import { emptyProfile } from "@/lib/brandProfile";
-import type { BrandProfile, BrandSet } from "@/lib/types";
+import type { BrandSet } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 export type Selection = { kind: "new" } | { kind: "set"; name: string };
@@ -51,7 +51,6 @@ export function BrandWorkspace() {
   const [selection, setSelection] = useState<Selection>({ kind: "new" });
   const [version, setVersion] = useState(0); // remounts the editor when the selection is replaced
   const [error, setError] = useState<string | null>(null);
-  const [profile, setProfile] = useState<{ name: string; profile: BrandProfile } | null>(null);
   const dirty = useRef(false);
   const onDirtyChange = useCallback((d: boolean) => {
     dirty.current = d;
@@ -79,15 +78,13 @@ export function BrandWorkspace() {
     dirty.current = false;
     setError(null);
     setSelection(next);
-    setProfile(null);
     setVersion((v) => v + 1);
   }
 
   // A save keeps the same form mounted (so its "Saved" notice stays); only the selection moves to the saved set.
-  async function afterSave(name: string, saved: BrandProfile) {
+  async function afterSave(name: string) {
     dirty.current = false;
     await load();
-    setProfile({ name, profile: saved });
     setSelection({ kind: "set", name });
   }
 
@@ -95,40 +92,23 @@ export function BrandWorkspace() {
     dirty.current = false;
     await load();
     setSelection({ kind: "new" });
-    setProfile(null);
     setVersion((v) => v + 1);
   }
 
   const current = selection.kind === "set" ? sets.find((s) => s.name === selection.name) ?? null : null;
   const names = sets.map((s) => s.name);
-  const currentName = current?.name;
-  const currentManaged = current?.managed;
 
-  useEffect(() => {
-    if (!currentName || !currentManaged || profile?.name === currentName) return;
-    let alive = true;
-    api
-      .brandProfile(currentName)
-      .then((r) => {
-        if (!alive) return;
-        setError(null);
-        setProfile({ name: currentName, profile: r.profile });
-      })
-      .catch((e) => alive && setError(errorMessage(e)));
-    return () => {
-      alive = false;
-    };
-  }, [currentName, currentManaged, profile?.name, version]);
-
+  // A form set's answers come with the set list, so opening one needs no further request. The form only reads
+  // `initial` when it mounts, so the list reloading after a save does not reset it.
   let editor: ReactNode;
   if (current && !current.managed) {
     editor = <HandWrittenSet key={`hand-${version}`} name={current.name} onDeleted={afterDelete} />;
-  } else if (selection.kind === "new" || (profile && current && profile.name === current.name)) {
+  } else if (selection.kind === "new" || current?.profile) {
     editor = (
       <BrandProfileForm
         key={`form-${version}`}
         name={current?.name ?? null}
-        initial={selection.kind === "new" || !profile ? emptyProfile() : profile.profile}
+        initial={current?.profile ?? emptyProfile()}
         stale={current?.stale ?? false}
         existingNames={names}
         onSaved={afterSave}

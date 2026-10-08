@@ -124,4 +124,4 @@ def check(body: CheckBody) -> dict:
         result = build_rules(profile)
     except ProfileError as e:
         raise ApiError(422, str(e)) from None
-    return {"warnings": [asdict(w) for w in result.warnings], "tests": brands.check_tests(profile)}
+    return {"warnings": [asdict(w) for w in result.warnings], "tests": brands.check_tests(profile, result)}

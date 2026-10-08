@@ -146,7 +146,7 @@ function VerifyJobPanel({ run, job, liveSets, refetch }: { run: RunDetail; job: 
   return (
     <div className="space-y-4 rounded-md border p-4">
       <div data-testid="snapshot-note" className="text-sm text-neutral-700">
-        Brand set &quot;{job.brand_set}&quot;, brand set copied when this verification started.
+        Brand set &quot;{job.brand_set}&quot;, rules copied when this verification started.
         {changed && <span className="ml-1 text-amber-800">The live set has changed or been deleted since; these results use the copy.</span>}
       </div>
       <div data-testid="verify-progress" className="space-y-3">
