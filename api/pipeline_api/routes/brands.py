@@ -38,21 +38,27 @@ def _rules(raw: list[dict[str, Any]]) -> list[Any]:
 @router.get("/api/brands")
 def list_brands(request: Request) -> dict:
     try:
-        sets = brands.list_sets(_config(request))
+        sets = brands.list_sets_detailed(_config(request))
     except CONFIG_LOAD_ERRORS as e:
         raise ApiError(422, f"config.yaml could not be read: {e}") from None
-    return {"sets": [{"name": n, "rules": [brands.rule_to_dict(r) for r in rules]} for n, rules in sets.items()]}
+    return {
+        "sets": [
+            {"name": n, "rules": [brands.rule_to_dict(r) for r in s.rules], "managed": s.managed, "stale": s.stale}
+            for n, s in sets.items()
+        ]
+    }
 
 
 @router.put("/api/brands/{name}")
 def save_brand(request: Request, name: str, body: SaveBody) -> dict:
-    if body.create:
-        try:
-            existing = brands.list_sets(_config(request))
-        except CONFIG_LOAD_ERRORS as e:
-            raise ApiError(422, f"config.yaml could not be read: {e}") from None
-        if name in existing:
-            raise ApiError(409, f"A set named {name!r} already exists.")
+    try:
+        existing = brands.list_sets_detailed(_config(request))
+    except CONFIG_LOAD_ERRORS as e:
+        raise ApiError(422, f"config.yaml could not be read: {e}") from None
+    if name in existing and existing[name].managed:
+        raise ApiError(409, brands.MANAGED_MESSAGE)
+    if body.create and name in existing:
+        raise ApiError(409, f"A set named {name!r} already exists.")
     try:
         backup = brands.save_set(_config(request), name, _rules(body.rules))
     except CONFIG_WRITE_ERRORS as e:

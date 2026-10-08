@@ -17,6 +17,7 @@ from .fixture_search import make_fixture_search
 from .jobs import JobRunner
 from .logs import configure_logging
 from .monitor_bridge import load_bulk_search
+from .routes import brand_profiles as brand_profiles_routes
 from .routes import brands as brands_routes
 from .routes import events as events_routes
 from .routes import health
@@ -77,4 +78,5 @@ def create_app(
     app.include_router(verify_routes.router)
     app.include_router(events_routes.router)
     app.include_router(brands_routes.router)
+    app.include_router(brand_profiles_routes.router)
     return app
