@@ -5,12 +5,29 @@ from __future__ import annotations
 import threading
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
 from .settings import Settings
 
-# (query, start, end, pages, vertical, provider, stop) -> (rows, error, attempts); same as bulk_search.search_one
-SearchFn = Callable[[str, str, str, int, str, str, threading.Event | None], tuple[list[dict[str, Any]], str, int]]
+
+class SearchFn(Protocol):
+    """Same call shape as bulk_search.search_one: (query, start, end, pages, vertical, provider, stop, region) ->
+    (rows, error, attempts). region is a bulk_search.REGIONS key, or None for the legacy default market."""
+
+    def __call__(
+        self,
+        query: str,
+        start: str,
+        end: str,
+        pages: int,
+        vertical: str,
+        provider: str,
+        stop: threading.Event | None,
+        region: str | None = None,
+        /,
+    ) -> tuple[list[dict[str, Any]], str, int]: ...
+
+
 # Same signature as urlverify.pipeline.run
 PipelineRunFn = Callable[..., Awaitable[dict[str, Any]]]
 

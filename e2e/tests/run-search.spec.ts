@@ -3,8 +3,9 @@ import { createRun, shot } from "./helpers";
 
 test("search runs live, lists results, exports, retries and deletes", async ({ page }, info) => {
   const first = `mokobara luggage ${info.project.name}`;
-  await createRun(page, [first, "mokobara review", "fail: broken query"]);
+  await createRun(page, [first, "mokobara review", "fail: broken query"], "us");
   await expect(page.getByRole("heading", { name: first, level: 1 })).toBeVisible();
+  await expect(page.getByText("SerpAPI · United States · Web")).toBeVisible();
   const headerBox = await page.getByTestId("run-header").boundingBox();
   const progressBox = await page.getByTestId("search-progress").boundingBox();
 
@@ -29,7 +30,7 @@ test("search runs live, lists results, exports, retries and deletes", async ({ p
     page.waitForEvent("download"),
     page.getByRole("link", { name: "Download SERP xlsx" }).click(),
   ]);
-  expect(download.suggestedFilename()).toMatch(/_serp\.xlsx$/);
+  expect(download.suggestedFilename()).toMatch(/_US_serp\.xlsx$/);
   await shot(page, "run-search", info);
 
   const priorScrapeJobId = await progress.getAttribute("data-scrape-job-id");

@@ -13,16 +13,21 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError, api, errorMessage } from "@/lib/api";
-import { PROVIDER_LABEL, VERTICAL_LABEL, fmt } from "@/lib/format";
-import type { Options, Provider, SearchInput, Vertical } from "@/lib/types";
+import { PROVIDER_LABEL, VERTICAL_LABEL, fmt, regionLabel } from "@/lib/format";
+import type { Options, Provider, Region, SearchInput, Vertical } from "@/lib/types";
 import { usePlan } from "@/lib/usePlan";
 
-const FALLBACK: Options = { providers: ["serpapi", "dataforseo"], verticals: ["web", "news", "news_tab"], max_pages: { serpapi: 50, dataforseo: 20 } };
+const FALLBACK: Options = {
+  providers: ["serpapi", "dataforseo"],
+  verticals: ["web", "news", "news_tab"],
+  max_pages: { serpapi: 50, dataforseo: 20 },
+  regions: [{ id: "in", label: "India" }, { id: "us", label: "United States" }],
+};
 
 export function SearchForm() {
   const router = useRouter();
   const [options, setOptions] = useState<Options>(FALLBACK);
-  const [form, setForm] = useState<SearchInput>({ queries: "", provider: "serpapi", vertical: "web", pages: "1", start: "", end: "" });
+  const [form, setForm] = useState<SearchInput>({ queries: "", provider: "serpapi", region: "in", vertical: "web", pages: "1", start: "", end: "" });
   const { plan, error, loading, stale } = usePlan(form);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -73,11 +78,18 @@ export function SearchForm() {
             className="field-sizing-fixed h-80 resize-y font-mono text-sm"
           />
         </Field>
-        <div className="grid grid-cols-2 gap-4 xl:grid-cols-5">
+        <div className="grid grid-cols-2 gap-4 xl:grid-cols-3">
           <Field id="provider" label="Engine">
             <NativeSelect id="provider" value={form.provider} onChange={(e) => set("provider", e.target.value as Provider)}>
               {options.providers.map((p) => (
                 <option key={p} value={p}>{PROVIDER_LABEL[p]}</option>
+              ))}
+            </NativeSelect>
+          </Field>
+          <Field id="region" label="Region">
+            <NativeSelect id="region" value={form.region} onChange={(e) => set("region", e.target.value as Region)}>
+              {options.regions.map((r) => (
+                <option key={r.id} value={r.id}>{r.label}</option>
               ))}
             </NativeSelect>
           </Field>
@@ -120,7 +132,7 @@ export function SearchForm() {
           <AlertDialogHeader>
             <AlertDialogTitle>Start this search?</AlertDialogTitle>
             <AlertDialogDescription>
-              This can make up to {fmt(confirmedCalls)} billable SERP page requests on {PROVIDER_LABEL[form.provider]} ({fmt(plan?.cached_calls)} already cached and free). Queries stop early when results run out, so the real number is usually lower.
+              This can make up to {fmt(confirmedCalls)} billable SERP page requests on {PROVIDER_LABEL[form.provider]}, searching from {regionLabel(form.region)} ({fmt(plan?.cached_calls)} already cached and free). Queries stop early when results run out, so the real number is usually lower.
             </AlertDialogDescription>
           </AlertDialogHeader>
           {submitError && <p role="alert" className="text-sm text-red-700">{submitError}</p>}

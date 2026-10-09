@@ -1,10 +1,16 @@
 export type Provider = "serpapi" | "dataforseo";
 export type Vertical = "web" | "news" | "news_tab";
+export type Region = "in" | "us";
 export type RunStatus = "scraping" | "scraped" | "verifying" | "verified" | "failed";
 export type JobState = "queued" | "running" | "cancelling" | "done" | "failed" | "cancelled";
 export type Cell = string | number | boolean | null;
 
-export interface Options { providers: Provider[]; verticals: Vertical[]; max_pages: Record<Provider, number> }
+export interface Options {
+  providers: Provider[];
+  verticals: Vertical[];
+  max_pages: Record<Provider, number>;
+  regions: { id: Region; label: string }[];
+}
 export interface Health {
   ok: boolean;
   company_monitor: boolean;
@@ -13,8 +19,8 @@ export interface Health {
   keys: Record<Provider, string | null>;
   chromium: boolean;
 }
-export interface SearchInput { queries: string; provider: Provider; vertical: Vertical; pages: string; start: string; end: string }
-export interface Plan { queries: string[]; count: number; pages: number; max_calls: number; cached_calls: number }
+export interface SearchInput { queries: string; provider: Provider; region: Region; vertical: Vertical; pages: string; start: string; end: string }
+export interface Plan { queries: string[]; count: number; pages: number; max_calls: number; cached_calls: number; region: Region | null }
 export interface QueryRow {
   id: number;
   position: number;
@@ -103,6 +109,7 @@ export interface RunDetail {
   id: string;
   name: string;
   provider: Provider;
+  region: Region | null; // null: a run from before regions existed, searched on the provider's default market
   vertical: Vertical;
   pages: number;
   start_date: string | null;
@@ -123,6 +130,7 @@ export interface RunListItem {
   id: string;
   name: string;
   provider: Provider;
+  region: Region | null;
   vertical: Vertical;
   start_date: string | null;
   end_date: string | null;

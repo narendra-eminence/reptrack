@@ -22,9 +22,14 @@ test("previews parsed queries and billable pages before spending", async ({ page
   await expect(page.getByLabel("Pages per query")).toBeDisabled();
   await shot(page, "new-run", info);
 
+  await expect(page.getByLabel("Region")).toHaveValue("in");
+  await page.getByLabel("Region").selectOption("us");
+  await expect(page.getByTestId("plan-max")).toHaveText("3");
+
   await page.getByRole("button", { name: "Run search" }).click();
   const dialog = page.getByRole("alertdialog");
   await expect(dialog).toContainText("up to 3 billable SERP page requests");
+  await expect(dialog).toContainText("searching from United States");
   await dialog.getByRole("button", { name: "Cancel" }).click();
   await expect(dialog).toBeHidden();
 

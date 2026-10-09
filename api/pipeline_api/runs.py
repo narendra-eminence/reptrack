@@ -27,6 +27,7 @@ class SearchRequest:
     pages: int
     start: str
     end: str
+    region: str | None = None
 
 
 def _iso(label: str, value: str) -> date:
@@ -42,7 +43,15 @@ def _iso(label: str, value: str) -> date:
 
 
 def validate_search(
-    bs: Any, *, queries: str, provider: str, vertical: str, pages: int | str | None, start: str, end: str
+    bs: Any,
+    *,
+    queries: str,
+    provider: str,
+    vertical: str,
+    pages: int | str | None,
+    start: str,
+    end: str,
+    region: str | None = None,
 ) -> SearchRequest:
     parsed = bs.parse_queries(queries or "")
     if not parsed:
@@ -56,7 +65,10 @@ def validate_search(
         raise ApiError(422, f"Unknown vertical {vertical!r}. Expected one of {', '.join(VERTICALS)}.")
     if provider not in bs.PROVIDERS:
         raise ApiError(422, f"Unknown provider {provider!r}. Expected one of {', '.join(bs.PROVIDERS)}.")
-    return SearchRequest(parsed, provider, vertical, bs.pages_for(vertical, pages, provider), start, end)
+    region = (region or "").strip().lower() or None
+    if region is not None and region not in bs.REGIONS:
+        raise ApiError(422, f"Unknown region {region!r}. Expected one of {', '.join(bs.REGIONS)}.")
+    return SearchRequest(parsed, provider, vertical, bs.pages_for(vertical, pages, provider), start, end, region)
 
 
 def check_key(bs: Any, provider: str) -> None:
@@ -70,8 +82,8 @@ def create_run(conn: sqlite3.Connection, req: SearchRequest, max_calls: int) -> 
     run_id = uuid.uuid4().hex[:12]
     ts = now()
     conn.execute(
-        "INSERT INTO runs (id, name, provider, vertical, pages, start_date, end_date, status, max_calls, "
-        "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'scraping', ?, ?, ?)",
+        "INSERT INTO runs (id, name, provider, vertical, pages, start_date, end_date, region, status, max_calls, "
+        "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'scraping', ?, ?, ?)",
         (
             run_id,
             req.queries[0][:80],
@@ -80,6 +92,7 @@ def create_run(conn: sqlite3.Connection, req: SearchRequest, max_calls: int) -> 
             req.pages,
             req.start or None,
             req.end or None,
+            req.region,
             max_calls,
             ts,
             ts,
@@ -254,7 +267,7 @@ def after_stop_status(conn: sqlite3.Connection, run_id: str) -> str:
 
 def list_runs(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     rows = conn.execute("""
-        SELECT r.id, r.name, r.provider, r.vertical, r.start_date, r.end_date, r.status, r.updated_at,
+        SELECT r.id, r.name, r.provider, r.vertical, r.region, r.start_date, r.end_date, r.status, r.updated_at,
                (SELECT COUNT(*) FROM serp_rows s WHERE s.run_id = r.id) AS serp_rows,
                (SELECT v.status_counts_json FROM verify_jobs v WHERE v.run_id = r.id AND v.status = 'done'
                 ORDER BY v.id DESC LIMIT 1) AS last_counts

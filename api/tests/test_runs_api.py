@@ -29,6 +29,7 @@ def test_plan_returns_parsed_queries_so_comma_split_is_visible(settings, keys):
         ({"end": "2026-W10-1"}, "end"),
         ({"vertical": "images"}, "vertical"),
         ({"provider": "bing"}, "provider"),
+        ({"region": "uk"}, "region"),
     ],
 )
 def test_invalid_search_is_422_with_message(settings, keys, patch, message):
@@ -89,6 +90,46 @@ def test_run_lifecycle(settings, keys):
         assert c.get(f"/api/runs/{run_id}/rows", params={"q": "b.example"}).json()["total"] == 1
         runs = c.get("/api/runs").json()
         assert runs[0]["id"] == run_id and runs[0]["serp_rows"] == 3
+
+
+def test_options_list_the_regions(settings, keys):
+    with make_client(settings, search_one=FakeSearch()) as c:
+        regions = c.get("/api/options").json()["regions"]
+    assert regions == [{"id": "in", "label": "India"}, {"id": "us", "label": "United States"}]
+
+
+def test_region_is_stored_on_the_run_and_reaches_every_search(settings, keys):
+    fake = FakeSearch()
+    with make_client(settings, search_one=fake) as c:
+        assert c.post("/api/plan", json={**SEARCH_BODY, "region": "US"}).json()["region"] == "us"
+        run_id = c.post("/api/runs", json={**SEARCH_BODY, "region": "us", "confirmed_calls": 2}).json()["id"]
+        detail = wait_until(lambda: (d := c.get(f"/api/runs/{run_id}").json())["status"] == "scraped" and d)
+        assert detail["region"] == "us"
+        assert c.get("/api/runs").json()[0]["region"] == "us"
+        cd = c.get(f"/api/runs/{run_id}/serp.xlsx").headers["content-disposition"]
+    assert fake.regions == ["us", "us"]
+    assert "_US_serp.xlsx" in cd
+
+
+def test_omitted_region_keeps_the_legacy_default(settings, keys):
+    fake = FakeSearch()
+    with make_client(settings, search_one=fake) as c:
+        assert c.post("/api/plan", json=SEARCH_BODY).json()["region"] is None
+        run_id = c.post("/api/runs", json={**SEARCH_BODY, "confirmed_calls": 2}).json()["id"]
+        detail = wait_until(lambda: (d := c.get(f"/api/runs/{run_id}").json())["status"] == "scraped" and d)
+        cd = c.get(f"/api/runs/{run_id}/serp.xlsx").headers["content-disposition"]
+    assert detail["region"] is None and fake.regions == [None, None]
+    assert "_2026-03-01_2026-08-31_serp.xlsx" in cd
+
+
+def test_region_changes_the_serpapi_cache_probe(settings, keys, monkeypatch):
+    import bulk_search  # pyright: ignore[reportMissingImports]  # flat module on sys.path
+
+    probed: list[dict] = []
+    monkeypatch.setattr(bulk_search, "_is_cached", lambda url, params: probed.append(params) or False)
+    with make_client(settings, search_one=FakeSearch()) as c:
+        c.post("/api/plan", json={**SEARCH_BODY, "queries": "alpha", "region": "in"})
+    assert probed[0]["gl"] == "in" and probed[0]["hl"] == "en"
 
 
 def test_failed_queries_and_retry(settings, keys):

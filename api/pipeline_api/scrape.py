@@ -35,6 +35,7 @@ async def run_scrape(ctx: JobContext, deps: Deps) -> JobOutcome:
                 run["vertical"],
                 run["provider"],
                 ctx.cancel,
+                run["region"],
             )
 
         futures = {loop.run_in_executor(pool, work, q): q for q in pending}

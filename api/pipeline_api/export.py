@@ -63,9 +63,15 @@ def _period(run: Any) -> str:
     return f"_{run['start_date']}_{run['end_date']}" if run["start_date"] else ""
 
 
+def _region(run: Any) -> str:
+    # NULL for a run created before regions existed: those keep their old file names.
+    region = dict(run).get("region")
+    return f"_{region.upper()}" if region else ""
+
+
 def serp_filename(run: Any) -> str:
-    return f"{slug(run['name'])}{_period(run)}_serp.xlsx"
+    return f"{slug(run['name'])}{_period(run)}{_region(run)}_serp.xlsx"
 
 
 def verified_filename(run: Any, verify_job_id: int) -> str:
-    return f"{slug(run['name'])}{_period(run)}_verified_{verify_job_id}.xlsx"
+    return f"{slug(run['name'])}{_period(run)}{_region(run)}_verified_{verify_job_id}.xlsx"

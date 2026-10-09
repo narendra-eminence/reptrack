@@ -95,12 +95,14 @@ class FakeSearch:
     def __init__(self, results: dict[str, list[str]] | None = None):
         self.results = results or {}
         self.calls: list[str] = []
+        self.regions: list[str | None] = []
         self.gate = threading.Event()
         self.gate.set()
         self.block_after: int | None = None  # calls beyond this many block on `gate`
 
-    def __call__(self, query, start, end, pages, vertical, provider, stop):
+    def __call__(self, query, start, end, pages, vertical, provider, stop, region=None):
         self.calls.append(query)
+        self.regions.append(region)
         if self.block_after is not None and len(self.calls) > self.block_after:
             self.gate.wait(10)
         if query.startswith("fail:"):

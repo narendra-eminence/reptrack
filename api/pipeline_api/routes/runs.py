@@ -23,6 +23,8 @@ class SearchBody(BaseModel):
     pages: int | str | None = 1
     start: str = ""
     end: str = ""
+    # A bulk_search.REGIONS key. Omitted (None) keeps the provider's legacy default market.
+    region: str | None = None
     confirmed_calls: int | None = None
 
 
@@ -43,6 +45,7 @@ def _validate(request: Request, body: SearchBody) -> runs.SearchRequest:
         pages=body.pages,
         start=body.start,
         end=body.end,
+        region=body.region,
     )
 
 
@@ -51,13 +54,14 @@ def plan(request: Request, body: SearchBody) -> dict:
     bs = _deps(request).bs
     req = _validate(request, body)
     runs.check_key(bs, req.provider)
-    p = bs.plan(req.queries, req.start, req.end, req.pages, req.vertical, req.provider)
+    p = bs.plan(req.queries, req.start, req.end, req.pages, req.vertical, req.provider, req.region)
     return {
         "queries": req.queries,
         "count": p["queries"],
         "pages": p["pages"],
         "max_calls": p["max_calls"],
         "cached_calls": p["cached_calls"],
+        "region": req.region,
     }
 
 

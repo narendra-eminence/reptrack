@@ -1,5 +1,9 @@
 export const PROVIDER_LABEL: Record<string, string> = { serpapi: "SerpAPI", dataforseo: "DataForSEO" };
 export const VERTICAL_LABEL: Record<string, string> = { web: "Web", news: "News", news_tab: "News tab" };
+export const REGION_LABEL: Record<string, string> = { in: "India", us: "United States" };
+
+// Runs created before regions existed have no region and were searched on each provider's default market.
+export const regionLabel = (region: string | null) => (region ? (REGION_LABEL[region] ?? region.toUpperCase()) : "Provider default");
 export const STATUS_ORDER = [
   "Verified", "Title only", "Weak mention", "Boilerplate only", "Brand not found", "Search snippet match",
   "Page unreachable", "Unsupported platform",

@@ -73,4 +73,5 @@ def options(request: Request) -> dict:
         "providers": list(bs.PROVIDERS),
         "verticals": list(VERTICALS),
         "max_pages": {p: bs.max_pages_for(p) for p in bs.PROVIDERS},
+        "regions": [{"id": k, "label": v["label"]} for k, v in bs.REGIONS.items()],
     }

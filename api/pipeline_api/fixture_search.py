@@ -24,6 +24,7 @@ def make_fixture_search(bs: Any, path: Path) -> SearchFn:
         vertical: str,
         provider: str = "serpapi",
         stop: threading.Event | None = None,
+        region: str | None = None,
     ) -> tuple[list[dict[str, Any]], str, int]:
         time.sleep(delay)
         if query.startswith("fail:"):

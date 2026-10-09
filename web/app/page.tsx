@@ -6,7 +6,7 @@ import { Clip } from "@/components/Clip";
 import { StatusBadge } from "@/components/StatusBadge";
 import { buttonVariants } from "@/components/ui/button";
 import { api, errorMessage } from "@/lib/api";
-import { PROVIDER_LABEL, VERTICAL_LABEL, fmt, fmtDateTime, period } from "@/lib/format";
+import { PROVIDER_LABEL, VERTICAL_LABEL, fmt, fmtDateTime, period, regionLabel } from "@/lib/format";
 import type { RunListItem } from "@/lib/types";
 
 export default function RunsPage() {
@@ -31,11 +31,12 @@ export default function RunsPage() {
       )}
       {runs && runs.length > 0 && (
         <div className="overflow-x-auto rounded-md border">
-          <table className="w-full min-w-[960px] table-fixed text-sm">
+          <table className="w-full min-w-[1088px] table-fixed text-sm">
             <colgroup>
               <col />
               <col className="w-52" />
               <col className="w-28" />
+              <col className="w-32" />
               <col className="w-24" />
               <col className="w-28" />
               <col className="w-28" />
@@ -47,6 +48,7 @@ export default function RunsPage() {
                 <th className="px-3 py-2">Name</th>
                 <th className="px-3 py-2">Period</th>
                 <th className="px-3 py-2">Engine</th>
+                <th className="px-3 py-2">Region</th>
                 <th className="px-3 py-2">Vertical</th>
                 <th className="px-3 py-2">Status</th>
                 <th className="px-3 py-2 text-right">Results</th>
@@ -64,6 +66,7 @@ export default function RunsPage() {
                   </td>
                   <td className="px-3 py-2"><Clip text={period(r)} /></td>
                   <td className="px-3 py-2">{PROVIDER_LABEL[r.provider]}</td>
+                  <td className="px-3 py-2"><Clip text={regionLabel(r.region)} /></td>
                   <td className="px-3 py-2">{VERTICAL_LABEL[r.vertical]}</td>
                   <td className="px-3 py-2"><StatusBadge status={r.status} /></td>
                   <td className="px-3 py-2 text-right tabular-nums">{fmt(r.serp_rows)}</td>

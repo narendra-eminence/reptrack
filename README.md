@@ -37,6 +37,16 @@ make start   # same without auto-reload, production web build
 Jobs keep running if you close the browser tab. If the API stops mid-job, the next start resumes it: finished
 queries are not run again, provider responses already cached are free, and fetched pages are reused.
 
+## Region
+
+Each run is pinned to a search region, India (default) or United States, picked on the New run form. SerpAPI gets
+`gl`/`hl` (`in`/`en` or `us`/`en`) and DataForSEO gets `location_name`/`language_code` (`India`/`en` or
+`United States`/`en`); the list lives in Company Monitor's `bulk_search.REGIONS`. The region is stored on the run, so
+a retry or a resume after restart searches the same market, and it is added to export file names (`..._US_serp.xlsx`).
+The API's `region` field is optional: omitting it keeps the old behaviour (SerpAPI unpinned, DataForSEO India), and
+runs created before regions existed show "Provider default". A SerpAPI region changes the request, so the first run of
+a query in a region is not served from the cache of an earlier unpinned run.
+
 ## Data
 
 `data/app.db` (runs, queries, results, verifications), `data/exports/<run id>/` (xlsx files),

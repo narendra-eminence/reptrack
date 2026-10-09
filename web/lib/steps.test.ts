@@ -11,6 +11,7 @@ function makeRun(overrides: Partial<RunDetail> = {}): RunDetail {
     id: "abc123456789",
     name: "test run",
     provider: "serpapi",
+    region: "in",
     vertical: "web",
     pages: 1,
     start_date: null,

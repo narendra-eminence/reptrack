@@ -7,7 +7,7 @@ import { SerpResultsTable } from "@/components/SerpResultsTable";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { api, errorMessage } from "@/lib/api";
-import { PROVIDER_LABEL, VERTICAL_LABEL, fmt, period } from "@/lib/format";
+import { PROVIDER_LABEL, VERTICAL_LABEL, fmt, period, regionLabel } from "@/lib/format";
 import { useRunContext } from "@/lib/RunContext";
 import { stepHref } from "@/lib/steps";
 import { useStepNavigation } from "@/lib/useStepNavigation";
@@ -68,7 +68,7 @@ export function SearchStep({ run, refetch }: { run: RunDetail; refetch: () => Pr
         </div>
       </div>
       <p className="text-sm text-neutral-600">
-        {PROVIDER_LABEL[run.provider]} · {VERTICAL_LABEL[run.vertical]} · {run.pages} {run.pages === 1 ? "page" : "pages"} per query · {period(run)} · up to {fmt(run.max_calls)} billable pages
+        {PROVIDER_LABEL[run.provider]} · {regionLabel(run.region)} · {VERTICAL_LABEL[run.vertical]} · {run.pages} {run.pages === 1 ? "page" : "pages"} per query · {period(run)} · up to {fmt(run.max_calls)} billable pages
       </p>
       <div
         data-testid="search-progress"
