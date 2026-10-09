@@ -1,0 +1,11 @@
+data/
+e2e/.tmp/
+e2e/test-results/
+e2e/playwright-report/
+node_modules/
+.venv/
+__pycache__/
+.next/
+.DS_Store
+.superpowers/
+.env
