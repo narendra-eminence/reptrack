@@ -33,7 +33,7 @@ export interface QueryRow {
 }
 export interface Job {
   id: number;
-  kind: "scrape" | "verify";
+  kind: "scrape" | "verify" | "clean";
   run_id: string;
   ref_id: number | null;
   state: JobState;
@@ -51,7 +51,15 @@ export interface BrandRule {
   case_sensitive: boolean;
   context_window: number;
 }
-export interface BrandSet { name: string; rules: BrandRule[]; managed: boolean; stale: boolean; profile: BrandProfile | null }
+export interface BrandSet {
+  name: string;
+  rules: BrandRule[];
+  managed: boolean;
+  stale: boolean;
+  profile: BrandProfile | null;
+  /** Saved with the set in config.yaml; `saved: false` holds suggestions (the form's social handles) or nothing. */
+  cleaning: { details: CleaningDetails; saved: boolean };
+}
 export interface Exclusions { followed_by: string[]; preceded_by: string[]; nearby: string[]; phrases: string[] }
 export interface Person { name: string; require_brand_nearby: boolean }
 export interface TestSentence { text: string; expect: "match" | "no_match" }
@@ -104,6 +112,41 @@ export interface VerifyJob {
   finished_at: string | null;
   has_output: boolean;
 }
+export interface CleaningDetails {
+  own_websites: string[];
+  own_handles: string[];
+  competitor_websites: string[];
+  competitor_handles: string[];
+}
+export interface CleaningDetailsResponse { brand_set: string; details: CleaningDetails; saved: boolean; backup?: string }
+/** What a finished cleaning reports; empty ({}) until it has finished. */
+export interface CleanSummary {
+  rows_in: number;
+  unique_links: number;
+  clean_data: number;
+  brand_communication: number;
+  competitor_owned: number;
+  duplicates_link: number;
+  duplicates_text: number;
+  core_saved: number;
+  new_domains: number;
+  needs_review: number;
+  buckets: Record<string, number>;
+  sheets: Record<string, number>;
+  checks_ok: boolean;
+}
+export interface CleanJob {
+  id: number;
+  verify_job_id: number;
+  brand_set: string;
+  details: CleaningDetails;
+  status: JobState;
+  summary: Partial<CleanSummary>;
+  error: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  has_output: boolean;
+}
 export interface RunCounts { queries: number; done: number; failed: number; pending: number; serp_rows: number }
 export interface RunDetail {
   id: string;
@@ -122,6 +165,7 @@ export interface RunDetail {
   counts: RunCounts;
   queries: QueryRow[];
   verify_jobs: VerifyJob[];
+  clean_jobs: CleanJob[];
   active_job: Job | null;
   last_job: Job | null;
   last_scrape_job: Job | null;

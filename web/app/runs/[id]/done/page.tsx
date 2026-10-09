@@ -8,7 +8,7 @@ import { landingStep, stepAvailability } from "@/lib/steps";
 export default function DonePage() {
   const { run } = useRunContext();
   if (!stepAvailability(run).done) {
-    return <LockedPanel message="Available once a verification has finished." runId={run.id} fallbackStep={landingStep(run)} />;
+    return <LockedPanel message="Available once a cleaning has finished." runId={run.id} fallbackStep={landingStep(run)} />;
   }
   return <DoneStep run={run} />;
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  addValues, cleanProfile, emptyBrand, emptyExclusions, emptyProfile, missingValues, namedBrands, normaliseTag, remapCheck,
-  splitEntries,
+  addValues, cleanProfile, emptyBrand, emptyExclusions, emptyProfile, formProblems, missingValues, namedBrands, normaliseTag,
+  remapCheck, splitEntries, suggestSetName,
 } from "./brandProfile";
 import type { BrandProfile } from "./types";
 
@@ -107,5 +107,37 @@ describe("checking only named brands", () => {
     expect(out.warnings.map((w) => w.brand)).toEqual([2, null]);
     expect(out.tests[0].brand).toBe(0);
     expect(out.tests[0].elsewhere.map((e) => e.owner)).toEqual([2, null]);
+  });
+});
+
+describe("formProblems", () => {
+  const opts = { isNew: true, existingNames: ["safari"] };
+  const profile = (...names: string[]) => ({ brands: names.map((name) => ({ ...emptyBrand(), name })) });
+
+  it("names every missing required field, in form order", () => {
+    expect(formProblems("", profile("", "Genie"), opts)).toEqual([
+      { field: "set-name", message: "Set name is required, for example safari." },
+      { field: "b0-name", message: "Brand 1: Brand name is required." },
+    ]);
+  });
+
+  it("checks the set name's shape and that a new set's name is free", () => {
+    expect(formProblems("Safari Bags", profile("Safari"), opts)[0].message).toMatch(/lowercase letters/);
+    expect(formProblems("safari", profile("Safari"), opts)[0].message).toMatch(/already exists/);
+    expect(formProblems("safari", profile("Safari"), { ...opts, isNew: false })).toEqual([]);
+  });
+
+  it("flags a brand name used twice", () => {
+    expect(formProblems("zeta", profile("Zeta", " zeta "), opts)).toEqual([
+      { field: "b1-name", message: "Brand 2: zeta is already Brand 1." },
+    ]);
+  });
+});
+
+describe("suggestSetName", () => {
+  it("makes a valid set name from a brand name", () => {
+    expect(suggestSetName("Safari Industries")).toBe("safari_industries");
+    expect(suggestSetName("  Navana.ai! ")).toBe("navana_ai");
+    expect(suggestSetName("Café")).toBe("caf");
   });
 });

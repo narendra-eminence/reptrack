@@ -1,6 +1,7 @@
 "use client";
 
 import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { CLEANING_HINT, CleaningDetailsFields } from "@/components/CleaningDetailsFields";
 import { DeleteSetDialog } from "@/components/DeleteSetDialog";
 import { TagInput } from "@/components/TagInput";
 import { TestSentences } from "@/components/TestSentences";
@@ -10,9 +11,10 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { api, errorMessage } from "@/lib/api";
 import {
-  type CheckResult, cleanProfile, emptyBrand, emptyExclusions, namedBrands, normaliseTag, remapCheck,
+  type CheckResult, cleanProfile, emptyBrand, emptyExclusions, formProblems, namedBrands, normaliseTag, remapCheck,
+  suggestSetName,
 } from "@/lib/brandProfile";
-import type { BrandProfile, Exclusions, Person, ProfileBrand, TestResult, TestSentence } from "@/lib/types";
+import type { BrandProfile, CleaningDetails, Exclusions, Person, ProfileBrand, TestResult, TestSentence } from "@/lib/types";
 
 let idCounter = 0;
 const newId = () => `brand-${++idCounter}`; // client-only card identity; never sent to the API
@@ -22,6 +24,7 @@ const FIELDS_WITH_WARNINGS = new Set(["confirming_words", "phrases"]);
 type Props = {
   name: string | null; // null = new set
   initial: BrandProfile;
+  initialCleaning: CleaningDetails;
   stale: boolean;
   existingNames: string[];
   onSaved: (name: string) => void;
@@ -41,17 +44,27 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
   );
 }
 
+/** The red star after a required field's label; screen readers get `required` on the input instead. */
+function Required() {
+  return <span aria-hidden="true" className="-ml-1.5 text-red-700">*</span>;
+}
+
+function FieldError({ id, message }: { id: string; message: string | undefined }) {
+  return message ? <p id={id} className="text-xs text-red-700">{message}</p> : null;
+}
+
 function failingNote(tests: TestResult[]): string {
   const n = tests.filter((t) => !t.passed).length;
   if (!n) return "";
   return n === 1 ? " 1 test sentence does not give the expected result." : ` ${n} test sentences do not give the expected result.`;
 }
 
-export function BrandProfileForm({ name, initial, stale, existingNames, onSaved, onDeleted, onDirtyChange }: Props) {
+export function BrandProfileForm({ name, initial, initialCleaning, stale, existingNames, onSaved, onDeleted, onDirtyChange }: Props) {
   const [savedName, setSavedName] = useState(name); // becomes the set's name after a new set is saved, so the form stays mounted
   const [setName, setSetName] = useState(name ?? "");
   const [profile, setProfile] = useState<BrandProfile>(initial);
-  const [savedSnapshot, setSavedSnapshot] = useState(() => JSON.stringify({ n: name ?? "", p: initial }));
+  const [cleaning, setCleaning] = useState<CleaningDetails>(initialCleaning);
+  const [savedSnapshot, setSavedSnapshot] = useState(() => JSON.stringify({ n: name ?? "", p: initial, c: initialCleaning }));
   const [ids, setIds] = useState<string[]>(() => initial.brands.map(newId)); // parallel to profile.brands
   const [check, setCheck] = useState<CheckResult | null>(null);
   const [checkError, setCheckError] = useState<string | null>(null);
@@ -60,8 +73,12 @@ export function BrandProfileForm({ name, initial, stale, existingNames, onSaved,
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [saving, setSaving] = useState(false);
+  // A new set's name follows Brand 1's name until it is typed in by hand.
+  const [setNameTyped, setSetNameTyped] = useState(name !== null);
+  // Missing or invalid required fields are shown once a save has been tried, then update as they are fixed.
+  const [showProblems, setShowProblems] = useState(false);
 
-  const snapshot = JSON.stringify({ n: setName, p: profile });
+  const snapshot = JSON.stringify({ n: setName, p: profile, c: cleaning });
   useEffect(() => onDirtyChange(snapshot !== savedSnapshot), [snapshot, savedSnapshot, onDirtyChange]);
 
   // Check on every change (debounced): warnings next to fields and the result of every test sentence. Brands without
@@ -91,6 +108,13 @@ export function BrandProfileForm({ name, initial, stale, existingNames, onSaved,
       clearTimeout(t);
     };
   }, [named]);
+
+  const problems = useMemo(
+    () => formProblems(setName, profile, { isNew: savedName === null, existingNames }),
+    [setName, profile, savedName, existingNames],
+  );
+  const shownProblems = showProblems ? problems : [];
+  const problemFor = (field: string) => shownProblems.find((p) => p.field === field)?.message;
 
   const updateBrand = (i: number, patch: Partial<ProfileBrand>) =>
     setProfile((p) => ({ ...p, brands: p.brands.map((b, j) => (j === i ? { ...b, ...patch } : b)) }));
@@ -138,14 +162,15 @@ export function BrandProfileForm({ name, initial, stale, existingNames, onSaved,
     setError(null);
     setSaved(null);
     const n = setName.trim();
-    const sentSnapshot = JSON.stringify({ n: setName, p: profile }); // what is being saved, not what is typed meanwhile
-    if (savedName === null && existingNames.includes(n)) {
-      setError(`A set named ${n} already exists - pick another name.`);
+    const sentSnapshot = JSON.stringify({ n: setName, p: profile, c: cleaning }); // what is being saved, not what is typed meanwhile
+    if (problems.length) {
+      setShowProblems(true);
+      document.getElementById(problems[0].field)?.focus();
       return;
     }
     setSaving(true);
     try {
-      const res = await api.saveBrandProfile(n, clean, savedName === null);
+      const res = await api.saveBrandProfile(n, clean, savedName === null, cleaning);
       setSavedSnapshot(sentSnapshot);
       setSaved(`Saved. The previous config.yaml was backed up to ${res.backup.split("/").pop()}.${failingNote(res.tests)}`);
       setSavedName(res.name);
@@ -179,9 +204,30 @@ export function BrandProfileForm({ name, initial, stale, existingNames, onSaved,
           These rules differ from what the form would produce, from a hand edit of config.yaml or an app update. Saving will replace them with the form&apos;s version.
         </p>
       )}
+      <p className="text-xs text-neutral-500">
+        Fields marked <span className="text-red-700">*</span> are required. Everything else is optional.
+      </p>
       <div className="max-w-sm space-y-1.5">
-        <Label htmlFor="set-name">Set name</Label>
-        <Input className="h-9" id="set-name" value={setName} disabled={savedName !== null} onChange={(e) => setSetName(e.target.value)} placeholder="lowercase, e.g. safari" />
+        <Label htmlFor="set-name">Set name<Required /></Label>
+        <Input
+          className="h-9"
+          id="set-name"
+          required
+          aria-invalid={problemFor("set-name") ? true : undefined}
+          aria-describedby={problemFor("set-name") ? "set-name-error" : "set-name-hint"}
+          value={setName}
+          disabled={savedName !== null}
+          onChange={(e) => {
+            setSetName(e.target.value);
+            setSetNameTyped(true);
+          }}
+          placeholder="lowercase, e.g. safari"
+        />
+        {problemFor("set-name") ? (
+          <FieldError id="set-name-error" message={problemFor("set-name")} />
+        ) : (
+          savedName === null && <p id="set-name-hint" className="text-xs text-neutral-500">Lowercase letters, digits, _ and -. Filled in from Brand 1&apos;s name until you type one.</p>
+        )}
       </div>
 
       <ol className="space-y-4">
@@ -199,8 +245,22 @@ export function BrandProfileForm({ name, initial, stale, existingNames, onSaved,
 
               <div className="space-y-4">
                 <div className="space-y-1.5 md:max-w-sm">
-                  <Label htmlFor={`b${i}-name`}>Brand name</Label>
-                  <Input className="h-9" id={`b${i}-name`} aria-label={`Brand ${n}: Brand name`} value={b.name} onChange={(e) => updateBrand(i, { name: e.target.value })} placeholder="e.g. Safari" />
+                  <Label htmlFor={`b${i}-name`}>Brand name<Required /></Label>
+                  <Input
+                    className="h-9"
+                    id={`b${i}-name`}
+                    required
+                    aria-label={`Brand ${n}: Brand name`}
+                    aria-invalid={problemFor(`b${i}-name`) ? true : undefined}
+                    aria-describedby={problemFor(`b${i}-name`) ? `b${i}-name-error` : undefined}
+                    value={b.name}
+                    onChange={(e) => {
+                      updateBrand(i, { name: e.target.value });
+                      if (i === 0 && savedName === null && !setNameTyped) setSetName(suggestSetName(e.target.value));
+                    }}
+                    placeholder="e.g. Safari"
+                  />
+                  <FieldError id={`b${i}-name-error`} message={problemFor(`b${i}-name`)} />
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor={`b${i}-desc`}>Description</Label>
@@ -379,11 +439,33 @@ export function BrandProfileForm({ name, initial, stale, existingNames, onSaved,
       </ol>
       <Button variant="outline" onClick={addBrand}>Add another brand</Button>
 
+      <div data-testid="cleaning-details-panel" className="space-y-4 rounded-md border p-4">
+        <div>
+          <h3 className="text-base">Cleaning details</h3>
+          <p className="mt-1 max-w-prose text-xs text-neutral-500">{CLEANING_HINT} Saved with the set.</p>
+        </div>
+        <CleaningDetailsFields value={cleaning} onChange={setCleaning} />
+      </div>
+
       {hasBrandName && checkError && <p role="status" className="text-sm text-neutral-600">{checkError}</p>}
       <div className="flex flex-wrap items-center gap-3">
-        <Button onClick={save} disabled={!setName.trim() || saving}>{saving ? "Saving..." : "Save set"}</Button>
+        <Button onClick={save} disabled={saving}>{saving ? "Saving..." : "Save set"}</Button>
         {savedName && <Button variant="outline" onClick={() => setDeleteOpen(true)}>Delete set</Button>}
       </div>
+      {shownProblems.length > 0 && (
+        <div role="alert" data-testid="form-problems" className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
+          <p className="font-semibold">Fill in the required fields before saving:</p>
+          <ul className="mt-1 list-disc pl-5">
+            {shownProblems.map((p) => (
+              <li key={`${p.field}-${p.message}`}>
+                <button type="button" className="text-left underline-offset-2 hover:underline" onClick={() => document.getElementById(p.field)?.focus()}>
+                  {p.message}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
       {saved && snapshot === savedSnapshot && <p role="status" className="text-sm text-green-800">{saved}</p>}
 

@@ -10,7 +10,7 @@ import { settleRoute } from "@/lib/routeTransition";
 import { currentStepFromPath, stepStates, type StepKey } from "@/lib/steps";
 import { useRun } from "@/lib/useRun";
 
-// This layout stays mounted across /runs/[id], /runs/[id]/search, /runs/[id]/verify and /runs/[id]/done: the
+// This layout stays mounted across /runs/[id] and every step route (search, verify, clean, done): the
 // SSE connection and the run fetch live here so switching steps never reconnects or refetches.
 export default function RunLayout({ children, params }: { children: ReactNode; params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -27,7 +27,7 @@ export default function RunLayout({ children, params }: { children: ReactNode; p
   // to it and back via the stepper or a Continue button restores it - never persisted beyond this session, and
   // never holds table data, only the small strings already sitting in the URL. Refs are only written from an
   // effect (never during render), per the "no ref access during render" rule.
-  const stepQueryRef = useRef<Record<StepKey, string>>({ search: "", verify: "", done: "" });
+  const stepQueryRef = useRef<Record<StepKey, string>>({ search: "", verify: "", clean: "", done: "" });
   const currentStep = currentStepFromPath(pathname);
   const searchParamsString = searchParams.toString();
   useEffect(() => {

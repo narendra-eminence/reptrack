@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { doneAvailable, landingStep, stepAvailability, stepCompletion, verifyAvailable } from "./steps";
-import type { RunDetail, VerifyJob } from "./types";
+import { cleanAvailable, doneAvailable, landingStep, stepAvailability, stepCompletion, verifyAvailable } from "./steps";
+import type { CleanJob, RunDetail, VerifyJob } from "./types";
 
-// Playwright's fixture backend can't easily produce a failed or cancelled verify job (it completes almost
-// instantly), so the "a failed/cancelled verification does not unlock Done" rule is covered here instead of in
+// Playwright's fixture backend can't easily produce a failed or cancelled verify or clean job (they complete almost
+// instantly), so the "a failed/cancelled job does not unlock the next step" rules are covered here instead of in
 // e2e, per the brief's own fallback for pure functions that are hard to exercise end to end.
 
 function makeRun(overrides: Partial<RunDetail> = {}): RunDetail {
@@ -24,6 +24,7 @@ function makeRun(overrides: Partial<RunDetail> = {}): RunDetail {
     counts: { queries: 1, done: 1, failed: 0, pending: 0, serp_rows: 0 },
     queries: [],
     verify_jobs: [],
+    clean_jobs: [],
     active_job: null,
     last_job: null,
     last_scrape_job: null,
@@ -48,6 +49,25 @@ function makeVerifyJob(overrides: Partial<VerifyJob> = {}): VerifyJob {
   };
 }
 
+function makeCleanJob(overrides: Partial<CleanJob> = {}): CleanJob {
+  return {
+    id: 1,
+    verify_job_id: 1,
+    brand_set: "acme",
+    details: { own_websites: [], own_handles: [], competitor_websites: [], competitor_handles: [] },
+    status: "done",
+    summary: {},
+    error: null,
+    started_at: null,
+    finished_at: null,
+    has_output: true,
+    ...overrides,
+  };
+}
+
+const RESULTS = { queries: 2, done: 2, failed: 0, pending: 0, serp_rows: 5 };
+const verified = [makeVerifyJob({ status: "done" })];
+
 describe("verifyAvailable", () => {
   it("is false with no persisted SERP rows", () => {
     expect(verifyAvailable(makeRun({ counts: { queries: 1, done: 0, failed: 1, pending: 0, serp_rows: 0 } }))).toBe(false);
@@ -62,28 +82,45 @@ describe("verifyAvailable", () => {
   });
 });
 
-describe("doneAvailable", () => {
+describe("cleanAvailable", () => {
   it("is false when there are no verify jobs", () => {
-    expect(doneAvailable(makeRun())).toBe(false);
+    expect(cleanAvailable(makeRun())).toBe(false);
   });
 
   it("is false when the only verify job failed", () => {
-    expect(doneAvailable(makeRun({ verify_jobs: [makeVerifyJob({ status: "failed" })] }))).toBe(false);
+    expect(cleanAvailable(makeRun({ verify_jobs: [makeVerifyJob({ status: "failed" })] }))).toBe(false);
   });
 
   it("is false when the only verify job was cancelled", () => {
-    expect(doneAvailable(makeRun({ verify_jobs: [makeVerifyJob({ status: "cancelled" })] }))).toBe(false);
+    expect(cleanAvailable(makeRun({ verify_jobs: [makeVerifyJob({ status: "cancelled" })] }))).toBe(false);
   });
 
   it("is true once any verify job has finished, even alongside a failed one", () => {
     const run = makeRun({ verify_jobs: [makeVerifyJob({ id: 2, status: "failed" }), makeVerifyJob({ id: 1, status: "done" })] });
-    expect(doneAvailable(run)).toBe(true);
+    expect(cleanAvailable(run)).toBe(true);
   });
 
   it("stays true while a later re-verify is running", () => {
     const run = makeRun({
       verify_jobs: [makeVerifyJob({ id: 2, status: "running" }), makeVerifyJob({ id: 1, status: "done" })],
       active_job: { id: 2, kind: "verify", run_id: "abc123456789", ref_id: 2, state: "running", error: null, created_at: "", started_at: "", finished_at: null, resumed_at: null },
+    });
+    expect(cleanAvailable(run)).toBe(true);
+  });
+});
+
+describe("doneAvailable", () => {
+  it("is false after a verification until a cleaning has finished", () => {
+    expect(doneAvailable(makeRun({ verify_jobs: verified }))).toBe(false);
+    expect(doneAvailable(makeRun({ verify_jobs: verified, clean_jobs: [makeCleanJob({ status: "failed" })] }))).toBe(false);
+    expect(doneAvailable(makeRun({ verify_jobs: verified, clean_jobs: [makeCleanJob({ status: "cancelled" })] }))).toBe(false);
+  });
+
+  it("is true once a cleaning has finished, and stays true while a later one runs", () => {
+    const run = makeRun({
+      verify_jobs: verified,
+      clean_jobs: [makeCleanJob({ id: 2, status: "running" }), makeCleanJob({ id: 1, status: "done" })],
+      active_job: { id: 3, kind: "clean", run_id: "abc123456789", ref_id: 2, state: "running", error: null, created_at: "", started_at: "", finished_at: null, resumed_at: null },
     });
     expect(doneAvailable(run)).toBe(true);
   });
@@ -92,12 +129,12 @@ describe("doneAvailable", () => {
 describe("stepAvailability", () => {
   it("locks verify and done for a fresh run with only failing queries (zero SERP rows)", () => {
     const run = makeRun({ counts: { queries: 1, done: 0, failed: 1, pending: 0, serp_rows: 0 } });
-    expect(stepAvailability(run)).toEqual({ search: true, verify: false, done: false });
+    expect(stepAvailability(run)).toEqual({ search: true, verify: false, clean: false, done: false });
   });
 
   it("unlocks verify but not done once results exist with no finished verification", () => {
     const run = makeRun({ counts: { queries: 2, done: 2, failed: 0, pending: 0, serp_rows: 5 } });
-    expect(stepAvailability(run)).toEqual({ search: true, verify: true, done: false });
+    expect(stepAvailability(run)).toEqual({ search: true, verify: true, clean: false, done: false });
   });
 
   it("does not unlock done for a failed verification", () => {
@@ -105,7 +142,7 @@ describe("stepAvailability", () => {
       counts: { queries: 2, done: 2, failed: 0, pending: 0, serp_rows: 5 },
       verify_jobs: [makeVerifyJob({ status: "failed" })],
     });
-    expect(stepAvailability(run)).toEqual({ search: true, verify: true, done: false });
+    expect(stepAvailability(run)).toEqual({ search: true, verify: true, clean: false, done: false });
   });
 
   it("does not unlock done for a cancelled verification", () => {
@@ -113,15 +150,17 @@ describe("stepAvailability", () => {
       counts: { queries: 2, done: 2, failed: 0, pending: 0, serp_rows: 5 },
       verify_jobs: [makeVerifyJob({ status: "cancelled" })],
     });
-    expect(stepAvailability(run)).toEqual({ search: true, verify: true, done: false });
+    expect(stepAvailability(run)).toEqual({ search: true, verify: true, clean: false, done: false });
   });
 
-  it("unlocks all three once a verification has finished", () => {
-    const run = makeRun({
-      counts: { queries: 2, done: 2, failed: 0, pending: 0, serp_rows: 5 },
-      verify_jobs: [makeVerifyJob({ status: "done" })],
-    });
-    expect(stepAvailability(run)).toEqual({ search: true, verify: true, done: true });
+  it("unlocks clean once a verification has finished", () => {
+    const run = makeRun({ counts: RESULTS, verify_jobs: verified });
+    expect(stepAvailability(run)).toEqual({ search: true, verify: true, clean: true, done: false });
+  });
+
+  it("unlocks all four once a cleaning has finished", () => {
+    const run = makeRun({ counts: RESULTS, verify_jobs: verified, clean_jobs: [makeCleanJob()] });
+    expect(stepAvailability(run)).toEqual({ search: true, verify: true, clean: true, done: true });
   });
 });
 
@@ -142,12 +181,16 @@ describe("landingStep", () => {
     expect(landingStep(run)).toBe("verify");
   });
 
-  it("lands on done once a verification has finished", () => {
-    const run = makeRun({
-      counts: { queries: 2, done: 2, failed: 0, pending: 0, serp_rows: 5 },
-      verify_jobs: [makeVerifyJob({ status: "done" })],
-    });
-    expect(landingStep(run)).toBe("done");
+  it("lands on clean once a verification has finished", () => {
+    expect(landingStep(makeRun({ counts: RESULTS, verify_jobs: verified }))).toBe("clean");
+  });
+
+  it("stays on clean when the only cleaning failed", () => {
+    expect(landingStep(makeRun({ counts: RESULTS, verify_jobs: verified, clean_jobs: [makeCleanJob({ status: "failed" })] }))).toBe("clean");
+  });
+
+  it("lands on done once a cleaning has finished", () => {
+    expect(landingStep(makeRun({ counts: RESULTS, verify_jobs: verified, clean_jobs: [makeCleanJob()] }))).toBe("done");
   });
 });
 
@@ -181,5 +224,19 @@ describe("stepCompletion", () => {
       active_job: { id: 2, kind: "verify", run_id: "abc123456789", ref_id: 2, state: "running", error: null, created_at: "", started_at: "", finished_at: null, resumed_at: null },
     });
     expect(stepCompletion(run).verify).toBe(false);
+  });
+
+  it("clean is done once a cleaning has finished and none is running", () => {
+    expect(stepCompletion(makeRun({ verify_jobs: verified, clean_jobs: [makeCleanJob()] })).clean).toBe(true);
+    expect(stepCompletion(makeRun({ verify_jobs: verified })).clean).toBe(false);
+  });
+
+  it("clean is not shown as done while a re-clean is in flight", () => {
+    const run = makeRun({
+      verify_jobs: verified,
+      clean_jobs: [makeCleanJob({ id: 2, status: "running" }), makeCleanJob({ id: 1 })],
+      active_job: { id: 3, kind: "clean", run_id: "abc123456789", ref_id: 2, state: "running", error: null, created_at: "", started_at: "", finished_at: null, resumed_at: null },
+    });
+    expect(stepCompletion(run).clean).toBe(false);
   });
 });

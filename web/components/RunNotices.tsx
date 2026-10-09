@@ -36,7 +36,7 @@ export function RunNotices({ run, refetch }: { run: RunDetail; refetch: () => Pr
       {run.status === "failed" && (
         <div role="alert" className="flex items-start justify-between gap-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm">
           <div>
-            <p className="font-semibold text-red-900">{job?.kind === "verify" ? "Verification failed" : "Search failed"}</p>
+            <p className="font-semibold text-red-900">{job?.kind === "verify" ? "Verification failed" : job?.kind === "clean" ? "Cleaning failed" : "Search failed"}</p>
             <p className="mt-1 text-red-800">{run.error}</p>
             {error && <p className="mt-1 text-red-800">{error}</p>}
           </div>

@@ -1,4 +1,4 @@
-"""Where the two sibling repos, the verifier config and this app's data live."""
+"""Where the two sibling repos, the verifier config, the master media list and this app's data live."""
 
 from __future__ import annotations
 
@@ -19,6 +19,8 @@ class Settings:
     data_dir: Path
     search_backend: str = "live"  # "live" | "fixture"
     search_fixture: Path | None = None
+    # The RepScore Master Media List (Major / Regional / Other Media). Replace the file to update bucketing.
+    master_media_list: Path = REPO_ROOT / "reference" / "RepScore_Master_Media_List.xlsx"
 
     @property
     def db_path(self) -> Path:
@@ -38,6 +40,7 @@ class Settings:
             ("COMPANY_MONITOR_DIR", self.company_monitor_dir / "bulk_search.py"),
             ("URL_VERIFICATION_DIR", self.url_verification_dir / "urlverify"),
             ("URL_VERIFICATION_CONFIG", self.verifier_config),
+            ("MASTER_MEDIA_LIST", self.master_media_list),
         )
         for label, path in required:
             if not path.exists():
@@ -55,6 +58,7 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
     home = Path.home()
     uv_dir = Path(env.get("URL_VERIFICATION_DIR", str(home / "Desktop/niks/url-verification"))).expanduser()
     fixture = env.get("PIPELINE_SEARCH_FIXTURE")
+    media_list = env.get("MASTER_MEDIA_LIST")
     return Settings(
         company_monitor_dir=Path(
             env.get("COMPANY_MONITOR_DIR", str(home / "Desktop/Eminence/CompanyMonitor"))
@@ -65,4 +69,7 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         data_dir=Path(env.get("PIPELINE_DATA_DIR", str(REPO_ROOT / "data"))).expanduser(),
         search_backend=env.get("PIPELINE_SEARCH_BACKEND", "live"),
         search_fixture=Path(fixture).expanduser() if fixture else None,
+        master_media_list=(
+            Path(media_list).expanduser() if media_list else REPO_ROOT / "reference" / "RepScore_Master_Media_List.xlsx"
+        ),
     )

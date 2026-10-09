@@ -9,6 +9,7 @@ from typing import Any
 
 from fastapi import FastAPI
 
+from .cleaning import clean_kind
 from .db import migrate
 from .deps import Deps, PipelineRunFn, SearchFn
 from .errors import install_error_handlers
@@ -19,6 +20,7 @@ from .logs import configure_logging
 from .monitor_bridge import load_bulk_search
 from .routes import brand_profiles as brand_profiles_routes
 from .routes import brands as brands_routes
+from .routes import clean as clean_routes
 from .routes import events as events_routes
 from .routes import health
 from .routes import runs as runs_routes
@@ -58,7 +60,9 @@ def create_app(
     )
 
     bus = EventBus()
-    runner = JobRunner(settings.db_path, bus, {"scrape": scrape_kind(deps), "verify": verify_kind(deps)})
+    runner = JobRunner(
+        settings.db_path, bus, {"scrape": scrape_kind(deps), "verify": verify_kind(deps), "clean": clean_kind(deps)}
+    )
 
     shutdown = asyncio.Event()
 
@@ -82,6 +86,7 @@ def create_app(
     app.include_router(health.router)
     app.include_router(runs_routes.router)
     app.include_router(verify_routes.router)
+    app.include_router(clean_routes.router)
     app.include_router(events_routes.router)
     app.include_router(brands_routes.router)
     app.include_router(brand_profiles_routes.router)

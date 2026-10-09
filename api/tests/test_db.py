@@ -15,7 +15,7 @@ def _run(conn, run_id="r1"):
 
 def test_migrate_is_idempotent(tmp_path):
     db = tmp_path / "app.db"
-    assert migrate(db) == [1, 2]
+    assert migrate(db) == [1, 2, 3, 4]
     assert migrate(db) == []
 
 
@@ -31,7 +31,7 @@ def test_runs_from_before_regions_upgrade_with_no_region(tmp_path):
                 conn.execute(statement)
         conn.execute("INSERT INTO schema_migrations VALUES (1, ?)", (now(),))
         _run(conn)
-    assert migrate(db) == [2]
+    assert migrate(db) == [2, 3, 4]
     with session(db) as conn:
         assert conn.execute("SELECT region FROM runs WHERE id = 'r1'").fetchone()[0] is None
 

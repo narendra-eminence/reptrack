@@ -1,6 +1,6 @@
 import type {
-  BrandProfile, BrandSet, Health, Options, Page, Plan, ProfileWarning, RunDetail, RunListItem, SearchInput,
-  SerpRow, TestResult, VerifyRow,
+  BrandProfile, BrandSet, CleaningDetails, CleaningDetailsResponse, Health, Options, Page, Plan, ProfileWarning,
+  RunDetail, RunListItem, SearchInput, SerpRow, TestResult, VerifyRow,
 } from "./types";
 
 const DOWN = "Backend not reachable. Start it with `make dev` in the repscore-pipeline folder.";
@@ -61,13 +61,21 @@ export const api = {
     post<{ verify_job_id: number; job_id: number }>(`/api/runs/${id}/verify`, { brand_set: brandSet }),
   verifyRows: (id: string, vj: number, p: { offset: number; limit: number; status?: string; hide_duplicates?: boolean; q?: string }) =>
     request<Page<VerifyRow>>(`/api/runs/${id}/verify/${vj}/results${qs(p)}`),
+  startClean: (id: string) => post<{ clean_job_id: number; job_id: number }>(`/api/runs/${id}/clean`, {}),
+  cleaningDetails: (brandSet: string) =>
+    request<CleaningDetailsResponse>(`/api/cleaning-details/${encodeURIComponent(brandSet)}`),
+  saveCleaningDetails: (brandSet: string, details: CleaningDetails) =>
+    request<CleaningDetailsResponse>(`/api/cleaning-details/${encodeURIComponent(brandSet)}`, {
+      method: "PUT",
+      body: JSON.stringify(details),
+    }),
   brands: () => request<{ sets: BrandSet[] }>("/api/brands"),
   deleteBrand: (name: string) =>
     request<{ deleted: string; backup: string }>(`/api/brands/${encodeURIComponent(name)}`, { method: "DELETE" }),
-  saveBrandProfile: (name: string, profile: BrandProfile, create = false) =>
+  saveBrandProfile: (name: string, profile: BrandProfile, create = false, cleaning?: CleaningDetails) =>
     request<{ name: string; backup: string; warnings: ProfileWarning[]; tests: TestResult[] }>(
       `/api/brand-profiles/${encodeURIComponent(name)}`,
-      { method: "PUT", body: JSON.stringify({ profile, create }) },
+      { method: "PUT", body: JSON.stringify({ profile, create, cleaning }) },
     ),
   checkBrandProfile: (profile: BrandProfile) =>
     post<{ warnings: ProfileWarning[]; tests: TestResult[] }>("/api/brand-profiles/check", { profile }),

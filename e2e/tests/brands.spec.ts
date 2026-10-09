@@ -18,7 +18,10 @@ test("a hand-written set is read-only, shows no rules, and can be deleted", asyn
     ),
   ).toBeVisible();
   await expect(page.getByRole("button", { name: "Delete set" })).toBeVisible();
-  await expect(page.getByRole("textbox")).toHaveCount(0);
+  // The rules have no text boxes; the only ones are the cleaning details, which verification never reads.
+  const cleaning = page.getByTestId("cleaning-details-panel");
+  await expect(cleaning.getByRole("textbox")).toHaveCount(4);
+  await expect(page.getByRole("textbox")).toHaveCount(4);
   await expect(page.getByRole("button", { name: "Save set" })).toHaveCount(0);
   const body = await page.locator("body").innerText();
   for (const bit of REGEX_BITS) expect(body).not.toContain(bit);

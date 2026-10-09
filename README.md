@@ -1,7 +1,8 @@
 # RepScore Pipeline
 
-One local web app for the SERP search -> URL verification workflow: paste queries, run them on SerpAPI or
-DataForSEO, verify every result URL against a chosen brand set, download the verified xlsx.
+One local web app for the SERP search -> URL verification -> cleaning workflow: paste queries, run them on SerpAPI or
+DataForSEO, verify every result URL against a chosen brand set, then clean the verified rows into the RepScore
+workbook (source buckets, exclusions, duplicates) and download it.
 
 ## What it uses
 
@@ -10,8 +11,11 @@ DataForSEO, verify every result URL against a chosen brand set, download the ver
 - **url-verification** (`~/Desktop/niks/url-verification`): the `urlverify` package, its `config.yaml` brand sets
   and its `cache/` of fetched pages. The command line `verify_urls.py` keeps working and shares both.
 
+- **Master media list** (`reference/RepScore_Master_Media_List.xlsx`): decides Major / Regional / Other Media. Drop in
+  a newer copy of the file to update bucketing; it is re-read when it changes, no restart needed.
+
 Override the locations with `COMPANY_MONITOR_DIR`, `URL_VERIFICATION_DIR`, `URL_VERIFICATION_CONFIG`,
-`URL_VERIFICATION_CACHE`, `PIPELINE_DATA_DIR`.
+`URL_VERIFICATION_CACHE`, `PIPELINE_DATA_DIR`, `MASTER_MEDIA_LIST`.
 
 The backend (`api/`) is FastAPI on Python 3.12 (pinned in `api/.python-version`, managed with `uv`). The
 frontend (`web/`) is Next.js 16 with shadcn's `base-nova` style, built on Base UI (not Radix).
@@ -47,9 +51,51 @@ The API's `region` field is optional: omitting it keeps the old behaviour (SerpA
 runs created before regions existed show "Provider default". A SerpAPI region changes the request, so the first run of
 a query in a region is not served from the cache of an earlier unpinned run.
 
+## Clean
+
+The Clean step turns a finished verification into the RepScore cleaning workbook, with scripted rules only; nothing
+is tagged and no AI is involved. The rules are a port of the `repscore-data-processing` skill's `rules.py` and
+`media_bucket.py` (in `api/pipeline_api/clean/`); keep the two in step when a rule changes.
+
+In order, first match wins:
+
+1. Same link twice (tracking and display-language parameters, `www.` and `http/https` ignored) -> the first is kept,
+   the copies go to the bucket's duplicate sheet.
+2. Export date outside the run's period -> `Out of Range`. Undated rows are kept and never given a guessed date.
+3. The brand's own websites and accounts -> `Brand Communication`; a competitor's -> `Competitor Owned`, shown at the
+   bottom of `Other Media` and kept out of `Clean Data`.
+4. X, YouTube, Facebook, Instagram, Reddit, LinkedIn -> their own sheet; TikTok, Threads, Bluesky, Quora, Pinterest ->
+   `Other Sources`. Profile pages (an account, not a post) and LinkedIn job listings -> `Low Quality`.
+5. E-commerce, directories, review platforms, job boards, app stores, blogs, academic and institutional sites ->
+   `Low Quality`; content-farm doorway pages -> `Spam`. Each row says why in `Exclusion Type`.
+6. Everything else -> the master media list's Major / Regional / Other Media. Unknown domains go to Other Media and
+   are listed on `NEW Domains` for the list's owner.
+7. Title and snippet that the verification's own brand rules do not match -> `Low Quality`, `No brand mention`.
+8. Same title or snippet in the same group (media, or one platform) -> the highest-tier copy is kept; Core-level
+   Major Media is never removed this way.
+
+Which verification is cleaned: the run's latest finished one, with that verification's copy of the brand rules. The
+verifier's own status per row is carried as `Script Status` and does not move rows; `Verification Status` stays
+`Pending`. Left for the reviewed phases: passing mentions, wrong entities the brand rules cannot tell apart,
+publication names for NEW domains, tagging, sentiment and scoring.
+
+**Cleaning details** are part of each brand set and live with it in url-verification's `config.yaml`, under
+`cleaning:` keyed by set name: own websites, own social handles, competitor websites, competitor handles. On the
+Brands page a form set shows them as a section of the form and saves them with `Save set`; a hand-written set, whose
+rules stay read-only, shows them with their own Save. Every save keeps a `config.yaml` backup, and deleting a set
+deletes its details. A pasted profile link is reduced to its handle, a website to its host. A form set without saved
+details starts from its form's social handles. A cleaning copies the details when it starts, like verification copies
+the brand rules. Verification never reads them.
+
+The workbook (`<brand set>_RepScore_clean_<period>_<region>_<id>.xlsx`) holds, in order: Cleaning Summary, Clean
+Data, the ten bucket sheets, Brand Communication, Low Quality, Spam, Unclassified, Verification Removed (empty until
+a later phase fills it), Out of Range, the duplicate sheets that have rows, Source Bucket (the domain map), NEW
+Domains, Query Yield, and Raw Data (the SERP export as scraped, plus each row's Cleaning Outcome).
+
 ## Data
 
-`data/app.db` (runs, queries, results, verifications), `data/exports/<run id>/` (xlsx files),
+`data/app.db` (runs, queries, results, verifications, cleanings), `data/exports/<run id>/` (xlsx
+files),
 `data/logs/api.log` (JSON lines). Deleting a run in the UI removes its rows and files.
 
 ## Brand sets

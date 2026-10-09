@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { BrandWorkspace } from "@/components/BrandWorkspace";
 
 export default function BrandsPage() {
@@ -9,7 +10,10 @@ export default function BrandsPage() {
           Stored in url-verification&apos;s config.yaml, shared with the verify_urls.py command line. Each save keeps a backup.
         </p>
       </div>
-      <BrandWorkspace />
+      {/* BrandWorkspace reads ?set= from the URL. */}
+      <Suspense>
+        <BrandWorkspace />
+      </Suspense>
     </div>
   );
 }

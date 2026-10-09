@@ -15,7 +15,7 @@ import { Progress } from "@/components/ui/progress";
 import { api, errorMessage } from "@/lib/api";
 import { fmt, fmtDateTime } from "@/lib/format";
 import { useRunContext } from "@/lib/RunContext";
-import { doneAvailable, stepHref } from "@/lib/steps";
+import { cleanAvailable, stepHref } from "@/lib/steps";
 import { useStepNavigation } from "@/lib/useStepNavigation";
 import { cn } from "@/lib/utils";
 import type { BrandSet, RunDetail, VerifyJob } from "@/lib/types";
@@ -36,9 +36,9 @@ export function VerifyStep({ run, refetch }: { run: RunDetail; refetch: () => Pr
   const latest = run.verify_jobs[0];
   const pending = run.counts.pending;
   // Controller ruling: Start verification stays the red primary action (disabled while any job is active) until
-  // a verification has actually finished; only then does Continue to Done take over as the one red button.
-  const done = doneAvailable(run);
-  const canContinueToDone = done && !run.active_job;
+  // a verification has actually finished; only then does Continue to Clean take over as the one red button.
+  const done = cleanAvailable(run);
+  const canContinue = done && !run.active_job;
 
   async function start() {
     setStarting(true);
@@ -57,13 +57,13 @@ export function VerifyStep({ run, refetch }: { run: RunDetail; refetch: () => Pr
     <section aria-labelledby="verify-heading" className="space-y-6">
       <div className="flex min-h-8 items-center justify-between">
         <h2 id="verify-heading" className="text-xl">2. Verify</h2>
-        {canContinueToDone && (
+        {canContinue && (
           <Button
-            data-testid="continue-to-done"
+            data-testid="continue-to-clean"
             data-primary-action="true"
-            onClick={() => navigate(stepHref(run.id, "done", getStepQuery("done")))}
+            onClick={() => navigate(stepHref(run.id, "clean", getStepQuery("clean")))}
           >
-            Continue to Done
+            Continue to Clean
           </Button>
         )}
       </div>

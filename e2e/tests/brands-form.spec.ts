@@ -53,6 +53,9 @@ test("create a set with people and test sentences, save, reload, add a brand, ve
 
   await addTag(page, "Brand 1: Words that confirm this is the brand", "trolley");
   await expect(results(page, 1).filter({ hasText: "Passes" })).toHaveCount(4);
+  // Cleaning details are part of the set: saved with it by the same Save set.
+  await addTag(page, "Own websites", "https://www.zeta.example/about");
+  await addTag(page, "Competitor social handles", "@rivalbags");
 
   await page.getByRole("button", { name: "Save set" }).click();
   await expect(page.getByRole("status")).toContainText("Saved");
@@ -60,6 +63,9 @@ test("create a set with people and test sentences, save, reload, add a brand, ve
   await page.reload();
   await expect(setButton(page, name)).toContainText("Form");
   await setButton(page, name).click();
+  const cleaning = page.getByTestId("cleaning-details-panel");
+  await expect(cleaning.getByRole("button", { name: "Remove zeta.example" })).toBeVisible(); // stored as the host
+  await expect(cleaning.getByRole("button", { name: "Remove rivalbags" })).toBeVisible();
   await expect(page.getByLabel("Brand 1: Brand name", { exact: true })).toHaveValue("Zeta");
   await expect(page.getByLabel("Brand 1: Description", { exact: true })).toHaveValue("Indian luggage maker");
   await expect(page.getByLabel("Brand 1: Is the brand name a common word? Yes")).toBeChecked();
@@ -176,4 +182,40 @@ test("no rule pattern is shown anywhere on the form", async ({ page }) => {
   await expect(results(page, 1)).toHaveText(["Passes"]);
   const body = await page.locator("body").innerText();
   for (const bit of ["(?:", "\\w", "[#@]"]) expect(body).not.toContain(bit);
+});
+
+test("Save set is always available and says which required fields are missing", async ({ page }, info) => {
+  await page.goto("/brands");
+  await page.getByRole("button", { name: "New set", exact: true }).click();
+  await expect(page.getByText("Fields marked * are required.")).toBeVisible();
+  await page.getByLabel("Brand 1: Description", { exact: true }).fill("Some details, but no names yet");
+  const save = page.getByRole("button", { name: "Save set" });
+  await expect(save).toBeEnabled();
+  await save.click();
+
+  const problems = page.getByTestId("form-problems");
+  await expect(problems).toContainText("Set name is required");
+  await expect(problems).toContainText("Brand 1: Brand name is required.");
+  await expect(page.getByLabel("Set name")).toHaveAttribute("aria-invalid", "true");
+  await expect(page.getByLabel("Set name")).toBeFocused();
+  await expect(page.getByLabel("Brand 1: Brand name", { exact: true })).toHaveAttribute("aria-invalid", "true");
+  await shot(page, "brands-form-required", info);
+
+  // The set name follows Brand 1's name until typed by hand, and each problem clears as it is fixed.
+  const brand = `Kappa ${info.project.name}`;
+  await page.getByLabel("Brand 1: Brand name", { exact: true }).fill(brand);
+  const setName = `kappa_${info.project.name.replace("-", "_")}`;
+  await expect(page.getByLabel("Set name")).toHaveValue(setName);
+  await expect(problems).toHaveCount(0);
+  await expect(page.getByLabel("Set name")).not.toHaveAttribute("aria-invalid", "true");
+
+  await page.getByLabel("Set name").fill("Not Valid");
+  await expect(page.getByTestId("form-problems")).toContainText("lowercase letters");
+  await page.getByLabel("Set name").fill(setName);
+  await save.click();
+  await expect(page.getByRole("status")).toContainText("Saved");
+
+  await page.getByRole("button", { name: "Delete set" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Delete" }).click();
+  await expect(setButton(page, setName)).toHaveCount(0);
 });

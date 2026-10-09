@@ -23,8 +23,16 @@ def _clean(value: Any) -> Any:
     return value
 
 
+def set_cell(ws: Any, row: int, col: int, value: Any) -> Any:
+    """Write one value as data: unwritable characters dropped, and text that looks like a formula kept as text."""
+    value = _clean(value)
+    cell = ws.cell(row=row, column=col, value=value)
+    if isinstance(value, str) and value.startswith("="):
+        cell.data_type = "s"  # text that looks like a formula is data, never a formula
+    return cell
+
+
 def write_rows_xlsx(path: Path, header: list[str], rows: list[list[Any]], sheet: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
     wb = Workbook()
     ws = wb.active
     assert ws is not None
@@ -32,10 +40,12 @@ def write_rows_xlsx(path: Path, header: list[str], rows: list[list[Any]], sheet:
     ws.append(header)
     for r, row in enumerate(rows, start=2):
         for col, value in enumerate(row, start=1):
-            value = _clean(value)
-            cell = ws.cell(row=r, column=col, value=value)
-            if isinstance(value, str) and value.startswith("="):
-                cell.data_type = "s"  # text that looks like a formula is data, never a formula
+            set_cell(ws, r, col, value)
+    save_atomic(wb, path)
+
+
+def save_atomic(wb: Workbook, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     # A unique name in the same directory, not path.with_suffix(".tmp.xlsx"): two concurrent exports of the same
     # run (serp_export runs synchronously, so FastAPI's threadpool can run two requests for the same run_id at
     # once) would otherwise both write to, and replace, the very same temp path.
@@ -75,3 +85,7 @@ def serp_filename(run: Any) -> str:
 
 def verified_filename(run: Any, verify_job_id: int) -> str:
     return f"{slug(run['name'])}{_period(run)}{_region(run)}_verified_{verify_job_id}.xlsx"
+
+
+def cleaned_filename(run: Any, brand_set: str, clean_job_id: int) -> str:
+    return f"{slug(brand_set)}_RepScore_clean{_period(run)}{_region(run)}_{clean_job_id}.xlsx"

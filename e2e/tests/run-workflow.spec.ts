@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { createRun, shot } from "./helpers";
 
 const PRIMARY = '[data-primary-action="true"]';
+const STEPS = ["search", "verify", "clean", "done"] as const;
 
 test("redirect lands on the right step from persisted state", async ({ page }, info) => {
   const name = `mokobara luggage wf-redirect ${info.project.name}`;
@@ -15,10 +16,14 @@ test("redirect lands on the right step from persisted state", async ({ page }, i
   await page.goto(`/runs/${runId}`);
   await expect(page).toHaveURL(new RegExp(`/runs/${runId}/verify$`));
 
-  // Once a verification is done, the redirect goes straight to /done.
+  // Once a verification is done, the redirect goes to /clean; once a cleaning is done, straight to /done.
   await page.getByLabel("Brand set").selectOption("mokobara");
   await page.getByRole("button", { name: "Start verification" }).click();
   await expect(page.getByTestId("verify-progress")).toContainText("Verification finished", { timeout: 60_000 });
+  await page.goto(`/runs/${runId}`);
+  await expect(page).toHaveURL(new RegExp(`/runs/${runId}/clean$`));
+  await page.getByRole("button", { name: "Start cleaning" }).click();
+  await expect(page.getByTestId("clean-status")).toHaveText("Cleaning finished", { timeout: 60_000 });
   await page.goto(`/runs/${runId}`);
   await expect(page).toHaveURL(new RegExp(`/runs/${runId}/done$`));
 });
@@ -45,14 +50,16 @@ test("locked steps stay locked and direct URLs show the fallback panel", async (
   const runId = url.match(/\/runs\/([0-9a-f]{12})\//)?.[1];
   if (!runId) throw new Error(`could not extract run id from ${url}`);
 
-  // Done is not clickable before any verification has finished.
-  const doneStep = page.getByTestId("step-done");
-  await expect(doneStep).toHaveAttribute("aria-disabled", "true");
+  // Clean and Done are not clickable before any verification has finished.
+  await expect(page.getByTestId("step-clean")).toHaveAttribute("aria-disabled", "true");
+  await expect(page.getByTestId("step-done")).toHaveAttribute("aria-disabled", "true");
 
-  // Direct URL to the locked Done step shows a fallback panel with a working link back, not a blank page.
+  // Direct URLs to locked steps show a fallback panel with a working link back, not a blank page.
+  await page.goto(`/runs/${runId}/clean`);
+  await expect(page.getByTestId("locked-step")).toContainText("Available once a verification has finished.");
   await page.goto(`/runs/${runId}/done`);
   const locked = page.getByTestId("locked-step");
-  await expect(locked).toContainText("Available once a verification has finished.");
+  await expect(locked).toContainText("Available once a cleaning has finished.");
   await locked.getByRole("link").click();
   await expect(page).toHaveURL(new RegExp(`/runs/${runId}/(search|verify)$`));
 });
@@ -84,12 +91,20 @@ test("continue buttons navigate to the next step, and at most one red primary bu
   await page.getByLabel("Brand set").selectOption("mokobara");
   await page.getByRole("button", { name: "Start verification" }).click();
   await expect(page.getByTestId("verify-progress")).toContainText("Verification finished", { timeout: 60_000 });
-  await expect(page.locator(PRIMARY)).toHaveCount(1); // Continue to Done; Start verification is now outline
+  await expect(page.locator(PRIMARY)).toHaveCount(1); // Continue to Clean; Start verification is now outline
   await expect(page.getByRole("button", { name: "Start verification" })).not.toHaveAttribute("data-primary-action", "true");
+
+  await page.getByTestId("continue-to-clean").click();
+  await expect(page).toHaveURL(/\/runs\/[0-9a-f]{12}\/clean$/);
+  await expect(page.locator(PRIMARY)).toHaveCount(1); // Start cleaning, before any cleaning exists
+  await page.getByRole("button", { name: "Start cleaning" }).click();
+  await expect(page.getByTestId("clean-status")).toHaveText("Cleaning finished", { timeout: 60_000 });
+  await expect(page.locator(PRIMARY)).toHaveCount(1); // Continue to Done; Start cleaning is now outline
+  await expect(page.getByRole("button", { name: "Start cleaning" })).not.toHaveAttribute("data-primary-action", "true");
 
   await page.getByTestId("continue-to-done").click();
   await expect(page).toHaveURL(/\/runs\/[0-9a-f]{12}\/done$/);
-  await expect(page.getByRole("heading", { name: "3. Done" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "4. Done" })).toBeVisible();
   await expect(page.locator(PRIMARY)).toHaveCount(0); // Done has no red primary button
 });
 
@@ -238,7 +253,7 @@ test("the stepper does not shift position between steps", async ({ page }, info)
   await expect(page.getByTestId("search-progress")).toContainText("Search finished");
 
   async function assertStepperGeometry() {
-    for (const key of ["search", "verify", "done"] as const) {
+    for (const key of STEPS) {
       const badge = await page.getByTestId(`step-${key}-badge`).boundingBox();
       const label = await page.getByTestId(`step-${key}-label`).boundingBox();
       if (!badge || !label) throw new Error(`missing boundingBox for step ${key}`);
@@ -248,10 +263,10 @@ test("the stepper does not shift position between steps", async ({ page }, info)
     }
     // Equal gaps on both sides of each connector: badge-to-label gap within a step should match the
     // label-to-connector and connector-to-next-badge gaps (a stray width around the label would break this).
-    for (let i = 0; i < 2; i++) {
-      const label = await page.getByTestId(`step-${["search", "verify", "done"][i]}-label`).boundingBox();
+    for (let i = 0; i < STEPS.length - 1; i++) {
+      const label = await page.getByTestId(`step-${STEPS[i]}-label`).boundingBox();
       const connector = await page.getByTestId(`step-connector-${i}`).boundingBox();
-      const nextBadge = await page.getByTestId(`step-${["search", "verify", "done"][i + 1]}-badge`).boundingBox();
+      const nextBadge = await page.getByTestId(`step-${STEPS[i + 1]}-badge`).boundingBox();
       if (!label || !connector || !nextBadge) throw new Error("missing boundingBox around connector");
       const gapBefore = connector.x - (label.x + label.width);
       const gapAfter = nextBadge.x - (connector.x + connector.width);
@@ -274,6 +289,13 @@ test("the stepper does not shift position between steps", async ({ page }, info)
   await page.getByLabel("Brand set").selectOption("mokobara");
   await page.getByRole("button", { name: "Start verification" }).click();
   await expect(page.getByTestId("verify-progress")).toContainText("Verification finished", { timeout: 60_000 });
+  await page.getByTestId("continue-to-clean").click();
+  await expect(page).toHaveURL(/\/clean$/);
+  const atClean = await assertStepperGeometry();
+  expect(atClean.search).toBe(atSearch.search);
+  expect(atClean.verify).toBe(atSearch.verify);
+  await page.getByRole("button", { name: "Start cleaning" }).click();
+  await expect(page.getByTestId("clean-status")).toHaveText("Cleaning finished", { timeout: 60_000 });
   await page.getByTestId("continue-to-done").click();
   await expect(page).toHaveURL(/\/done$/);
   const atDone = await assertStepperGeometry();

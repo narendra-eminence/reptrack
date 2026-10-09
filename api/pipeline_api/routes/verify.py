@@ -131,15 +131,21 @@ def retry_job(request: Request, job_id: int) -> dict:
                 job = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
                 if job is None:
                     raise ApiError(404, f"No job #{job_id}.")
-                if job["kind"] != "verify":
+                if job["kind"] == "scrape":
                     raise ApiError(409, "Retry a search with 'Retry failed queries'.")
                 if job["state"] not in ("failed", "cancelled"):
                     raise ApiError(
                         409, f"Job #{job_id} is {job['state']}; only failed or cancelled jobs can be retried."
                     )
                 runner.requeue(conn, job_id)
-                conn.execute("UPDATE verify_jobs SET status = 'queued', error = NULL WHERE id = ?", (job["ref_id"],))
-                runs.set_run_status(conn, job["run_id"], "verifying")
+                if job["kind"] == "clean":
+                    conn.execute("UPDATE clean_jobs SET status = 'queued', error = NULL WHERE id = ?", (job["ref_id"],))
+                    runs.set_run_status(conn, job["run_id"], runs.after_stop_status(conn, job["run_id"]))
+                else:
+                    conn.execute(
+                        "UPDATE verify_jobs SET status = 'queued', error = NULL WHERE id = ?", (job["ref_id"],)
+                    )
+                    runs.set_run_status(conn, job["run_id"], "verifying")
         except ActiveJobError as e:
             raise _conflict(e) from None
     runner.wake()

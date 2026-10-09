@@ -12,6 +12,7 @@ from urlverify.profile import BrandProfile, ProfileError, build_rules, profile_f
 
 from ..config_errors import CONFIG_LOAD_ERRORS, CONFIG_WRITE_ERRORS
 from ..errors import ApiError
+from .clean import DetailsBody, normalised
 
 router = APIRouter()
 
@@ -57,6 +58,8 @@ class ProfileBody(_Strict):
 class SaveBody(_Strict):
     profile: ProfileBody
     create: bool = False
+    # The set's cleaning details, saved in the same config.yaml write. Omitted: the saved ones are left as they are.
+    cleaning: DetailsBody | None = None
 
 
 class CheckBody(_Strict):
@@ -106,7 +109,8 @@ def save_profile(request: Request, name: str, body: SaveBody) -> dict:
     if existing is not None and body.create:
         raise ApiError(409, f"A set named {name!r} already exists.")
     try:
-        backup, warnings = brands.save_profile(_config(request), name, profile)
+        cleaning = normalised(body.cleaning).to_dict() if body.cleaning is not None else None
+        backup, warnings = brands.save_profile(_config(request), name, profile, cleaning=cleaning)
     except CONFIG_WRITE_ERRORS as e:
         raise ApiError(422, str(e)) from None
     return {

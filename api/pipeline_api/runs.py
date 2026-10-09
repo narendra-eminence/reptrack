@@ -234,6 +234,24 @@ def verify_jobs_for(conn: sqlite3.Connection, run_id: str) -> list[dict[str, Any
     return out
 
 
+def clean_jobs_for(conn: sqlite3.Connection, run_id: str) -> list[dict[str, Any]]:
+    return [
+        {
+            "id": r["id"],
+            "verify_job_id": r["verify_job_id"],
+            "brand_set": r["brand_set"],
+            "details": json.loads(r["details_json"]),
+            "status": r["status"],
+            "summary": json.loads(r["summary_json"]),
+            "error": r["error"],
+            "started_at": r["started_at"],
+            "finished_at": r["finished_at"],
+            "has_output": bool(r["output_path"]) and r["status"] == "done",
+        }
+        for r in conn.execute("SELECT * FROM clean_jobs WHERE run_id = ? ORDER BY id DESC", (run_id,))
+    ]
+
+
 def run_detail(conn: sqlite3.Connection, run_id: str) -> dict[str, Any]:
     run = dict(get_run(conn, run_id))
     queries = [
@@ -251,6 +269,7 @@ def run_detail(conn: sqlite3.Connection, run_id: str) -> dict[str, Any]:
         "counts": query_counts(conn, run_id),
         "queries": queries,
         "verify_jobs": verify_jobs_for(conn, run_id),
+        "clean_jobs": clean_jobs_for(conn, run_id),
         "active_job": active.to_dict() if active else None,
         "last_job": last.to_dict() if last else None,
         "last_scrape_job": last_scrape.to_dict() if last_scrape else None,
@@ -258,7 +277,7 @@ def run_detail(conn: sqlite3.Connection, run_id: str) -> dict[str, Any]:
 
 
 def after_stop_status(conn: sqlite3.Connection, run_id: str) -> str:
-    """The status a run should have after a scrape or verify job stops (finishes or is cancelled): "verified" if
+    """The status a run should have after a scrape, verify or clean job stops (finishes or is cancelled): "verified" if
     any verification has ever completed for this run, else "scraped" - so a later scrape stopping never downgrades
     a run that already has verified results."""
     done = conn.execute("SELECT 1 FROM verify_jobs WHERE run_id = ? AND status = 'done' LIMIT 1", (run_id,)).fetchone()

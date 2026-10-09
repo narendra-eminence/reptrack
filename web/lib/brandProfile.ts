@@ -97,3 +97,38 @@ export function remapCheck(r: CheckResult, indexes: number[]): CheckResult {
     })),
   };
 }
+
+/** The same rule url-verification applies to set names. */
+export const SET_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+
+/** A set name made from a brand name: "Safari Industries" -> "safari_industries". */
+export function suggestSetName(brandName: string): string {
+  return brandName.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 64).replace(/_+$/, "");
+}
+
+export type FormProblem = { field: string; message: string };
+
+/** What must be filled in or fixed before the set can be saved, in the order the fields appear. `field` is the id of
+ * the input to point at. The API checks the same things; this says so before anything is sent. */
+export function formProblems(setName: string, p: BrandProfile, opts: { isNew: boolean; existingNames: string[] }): FormProblem[] {
+  const out: FormProblem[] = [];
+  const name = setName.trim();
+  if (!name) out.push({ field: "set-name", message: "Set name is required, for example safari." });
+  else if (!SET_NAME_RE.test(name))
+    out.push({ field: "set-name", message: "Set name may only use lowercase letters, digits, _ and -, and must start with a letter or digit." });
+  else if (opts.isNew && opts.existingNames.includes(name))
+    out.push({ field: "set-name", message: `A set named ${name} already exists - pick another name.` });
+  const seen = new Map<string, number>();
+  p.brands.forEach((b, i) => {
+    const brandName = b.name.trim();
+    if (!brandName) {
+      out.push({ field: `b${i}-name`, message: `Brand ${i + 1}: Brand name is required.` });
+      return;
+    }
+    const key = brandName.toLowerCase();
+    const first = seen.get(key);
+    if (first !== undefined) out.push({ field: `b${i}-name`, message: `Brand ${i + 1}: ${brandName} is already Brand ${first + 1}.` });
+    else seen.set(key, i);
+  });
+  return out;
+}
